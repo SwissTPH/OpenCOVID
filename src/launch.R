@@ -26,7 +26,7 @@ if (interactive()) clc()  # Clear console
 message("Running COVID-19 IBM transmission model")
 
 # Set options (see options.R)
-o = set_options(do_step = 1)
+o = set_options(do_step = 0)
 
 # Step NA) Test run a single simulation
 run_model_test(o)  # See unit_tests.R
