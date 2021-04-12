@@ -49,7 +49,7 @@ An individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynami
 - Step 2 applies an MCMC algorithm to identify the global minima of the emulated space and produce parameter posteriors
   - Once finished, see `~\output\4_figures\my_analysis\` for 'quick' plots to gauge calibration quality
 - See `~\config\model_parameters.xlsx` for which parameters are subject to calibration
-- See `~\config\calibration_weights` for which metrics (and respective weightings) are considered in the likelihood function
+- See `~\config\calibration_weights.csv` for which metrics (and respective weightings) are considered in the likelihood function
 
 ### Run some alternative scenarios
 - Set `do_step = 3` in `launch.R` and 'source' to simulate the calibrated baseline and any user-defined alternative scenarios
@@ -68,7 +68,7 @@ An individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynami
 - These notes are just to get you started, of course
   - For a full introduction to the model and it's capabilities contact the development team
 
-#### V1.0 release date: 2021-02-19
+#### V1.0 release date: 2021-04-12
 
 #### Authors:
 * Andrew J. Shattock
