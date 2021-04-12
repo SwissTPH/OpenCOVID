@@ -1,0 +1,4 @@
+name,aka,default,efficacy,n_doses
+moderna,Moderna vaccine,FALSE,0.95,2
+pfizer,Pfizer-BioNTech vaccine,TRUE,0.95,2
+oxford,Oxford-AstraZeneca vaccine,FALSE,0.62,2

@@ -1,0 +1,10 @@
+README.html
+.Rhistory
+*.RDS
+*.rds
+scicore*
+/my_results.R
+config/my_options.csv
+data/data_cache.rds
+output/
+restricted/

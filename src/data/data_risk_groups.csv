@@ -1,0 +1,3 @@
+risk_group,lower_age,upper_age,n
+healthcare_worker,18,65,560000
+comorbidities,,75,621600
