@@ -1,11 +1,7 @@
 ###########################################################
 # LAUNCH
 #
-# Main launch function for a dynamic COVID-19 individual-based 
-# transmission model developed at Swiss TPH.
-#
-# Easiest use is to 'source' this file without echo.
-# Alternativly, call 'sh bash_launch.sh' from shell command line.
+# Main launch function for OpenCOVID.
 # 
 # Stable with R3.6.0.
 #
