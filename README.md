@@ -3,7 +3,7 @@ This git-repository contains current reports and source-code for OpenCOVID, an i
 
 Reports
 ======
-Our model and recent analysis is described here [Impact of vaccination and non-pharmaceutical interventions on SARS-CoV-2 dynamics in Switzerland](https://github.com/SwissTPH/OpenCOVID/blob/manuscript_march_2021/OpenCOVID%20manuscript%2020210323.pdf)
+Our model and recent analysis is described here [Impact of vaccination and non-pharmaceutical interventions on SARS-CoV-2 dynamics in Switzerland](https://www.medrxiv.org/content/10.1101/2021.04.14.21255503v1) or in a previous [version](https://github.com/SwissTPH/OpenCOVID/blob/manuscript_march_2021/OpenCOVID%20manuscript%2020210323.pdf)
 
 Developers and maintainers:
 =============
