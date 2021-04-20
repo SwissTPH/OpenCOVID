@@ -403,7 +403,7 @@ load_data_epi = function(o, plot_data_sources) {
     plot_epi_data(o, foph_data, openzh_data)  # See plotting.R
     
     # Also plot testing patterns over time
-    plot_diagnosis_ratio(o, epi_data)
+    # plot_diagnosis_ratio(o, epi_data)
   }
   
   return(epi_data)

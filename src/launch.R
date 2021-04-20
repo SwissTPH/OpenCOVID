@@ -15,7 +15,7 @@ if (interactive()) setwd(getSrcDirectory(function() {}))
 
 source("dependencies.R")
 
-# Tidy u
+# Tidy up
 if (interactive()) clf()  # Close figures 
 if (interactive()) clc()  # Clear console
 

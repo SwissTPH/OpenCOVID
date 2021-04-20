@@ -56,7 +56,7 @@ set_options = function(do_step = NA, test_param = NULL, quiet = FALSE) {
   o$manual_start_date = format_date("2020-01-01")
   
   # Use data up to and including this date
-  o$data_end_date = format_date("2021-04-06") # format_date(today())
+  o$data_end_date = format_date("2021-04-20") # format_date(today())
   
   # Number of days to project into the future
   o$n_future_days = 180
@@ -81,7 +81,7 @@ set_options = function(do_step = NA, test_param = NULL, quiet = FALSE) {
   # URL for more detailed (and complete) testing data from FOPH
   #
   # TODO: Need a better solution for this - the link changes each day
-  o$foph_data_url = "https://www.covid19.admin.ch/api/data/20210407-b734clqr/downloads/sources-csv.zip"
+  o$foph_data_url = "https://www.covid19.admin.ch/api/data/20210419-1jwbyd4f/downloads/sources-csv.zip"
   
   # Dictonary for metrics and their respective csv files
   o$foph_dict = qc(confirmed = "Cases", 	

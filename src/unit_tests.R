@@ -35,14 +35,14 @@ run_model_test = function(o, test_params = list()) {
   calibration_params[names(test_params)] = unlist(test_params)
   
   # Load data (see load_data.R)
-  d = load_data(o, from_cache = TRUE)
+  d = load_data(o, from_cache = FALSE)
   d = d[[o$cantons]]
   
   # Generate all model parameters (see parameters.R)
-  p = get_parameters(o, d, calibration_params, do_plot = FALSE)
+  p = get_parameters(o, d, calibration_params)
   
   # Run model (see model.R)
-  m = model(o, p, seed = 1, short_run = TRUE, verbose = "date")
+  m = model(o, p, seed = 1, verbose = "date")
   
   # Collate results - use trivial bounds as we have only a single simulation
   model_output = m %>%
