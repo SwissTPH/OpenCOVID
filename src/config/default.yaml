@@ -1,0 +1,503 @@
+---
+
+# ---- Simulation paramters ----
+
+# Number of people to simulate
+population_size: 50000
+
+# Time settings
+n_days: 200
+n_days_init: -360
+
+# Initial conditions 
+previously_infected: 0.3
+
+# Network structure
+#
+# OPTIONS: "random", "age", or "layers"
+network_structure: "age"
+
+# Network layers - only relevant if network structure is set to "layers"
+#
+# OPTIONS: "household", "school", "workplace"
+network_layers: household, school, workplace
+
+# Countries to pull network matrix data from
+contact_matrix_countries: DE, IT, FR  # ISO Alpha-2 country codes (en.wikipedia.org/wiki/ISO_3166-1_alpha-2)
+  
+# Seasonality profile
+seasonality_fn: 
+  fn: "cospi"
+  x:
+    fn: "seq"
+    from: -1
+    to: 1
+    length.out: 365
+seasonality_scaler: 0.3
+seasonality_shift: 90
+
+# Effective reproduction number at analysis start
+r_eff: 1.1  # Calibrated in step 1
+
+# Transmission probability for maximum infecitivty, susceptibility, and seasonality
+beta: 0.05
+
+# Importated infections per day
+import_constant: 1.5  # per 100k people
+
+# ---- Viral variants ----
+
+# Primary variant
+variant_primary:
+  id: delta
+  name: "Delta (B.1.617.2)"
+  immuno_escape: 0.0
+
+# Novel variant properties
+variants_novel: 
+- id: novel_variant
+  name: "Novel variant template"
+  import_day: 0
+  import_number: 0 # Set import_number to zero to turn off novel variant importation
+  infectivity: 1.0
+  severity: 1.0
+  immuno_escape: 0.0
+
+# Viral load profile
+viral_load_infectivity: yes
+viral_load_shape_fn: 
+  fn: "dgamma"
+  shape: 3.0
+  rate: 0.5
+  
+# Immunity through natural infection
+acquired_immunity:
+  value: 0.83
+  decay_init: 180
+  decay_duration: 360
+  
+# ---- Vaccination details ----
+  
+# Vaccination history
+vaccine_history: 
+- id: high_priority
+  name: "65+ or comorbidities"
+  priority: 1
+  condition: "age >= 65 | comorbidities == TRUE"
+  init_coverage: 0.8
+  init_start: -100  # Days into the past that vaccination program began
+  init_end: 0       # Days into the past that vaccination program ended (set to zero if ongoing)
+- id: low_priority
+  name: "18-65 year olds"
+  priority: 2
+  condition: "age >= 18 & age < 65"
+  init_coverage: 0.4
+  init_start: -50
+  init_end: 0
+  
+# Future vaccination rollout (must be consistent with 'vaccine_history')
+vaccine_rollout: 
+- id: high_priority
+  max_coverage: 0.9
+  max_start: 0  # Days into the future that vaccination scale up will began (set to zero if ongoing)
+  max_end: 40   # Days into the future that vaccination scale up will reach max coverage
+- id: low_priority
+  max_coverage: 0.6
+  max_start: 0
+  max_end: 120
+  
+  # Vaccine booster rollout (only groups to recieve a booster need to be specified)
+booster_rollout:
+- id: high_priority
+  probability: 0.0   # Probability of accepting/receiving a booster dose
+  cycle_period: 365  # Booster dose administered every cycle_period days
+  start: 0           # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+
+# Vaccine of choice
+vaccine_type: "pfizer"  # Properties of 'named' vaccines are pre-defined
+
+# Custom vaccine properties (to use, set vaccine_type: "custom")
+vaccine_custom:
+  name: "Custom vaccine"
+  efficacy: 0.0
+  transmission_blocking: 0.0
+  growth_fn:
+    fn: ""
+  subsequent_dose_days: 0  # Use 0 for a single dose vaccine
+  booster_efficacy: 0.0
+  booster_growth_days: 0
+  decay_init: 0
+  decay_duration: 0
+  
+# ---- Other interventions ----
+
+# Futrure non-pharmaceutical intervention effect
+npi_scaler: 0  # Set to 0 to turn off NPI effect
+npi_effect: 0
+
+# Testing and diagnosis
+diagnosis_delay: 3  # Delay between symptom onset and test/diagnosis
+testing:
+  without_symptoms:
+    sensitivity: 0.98
+    probability: 0.05
+    age_dist:
+      fn: "dunif"
+  with_symptoms:
+    sensitivity: 0.98
+    probability: 0.8
+    age_dist:
+      fn: "dunif"
+  mass_testing:
+    sensitivity: 0.7
+    probability: 0.5  # Interpret this as 'mass testing acceptance'
+    age_dist:
+      fn: "dgamma"
+      shape: 1.4
+      rate: 1.0
+    when:
+      fn: "seq"
+      from: 240
+      to: 300
+      by: 30
+    coverage: 0.0
+
+# Isolation
+isolation: 
+  probability: 1.0
+  delay: 0
+  duration: 10
+
+# ---- Biological and epidemiological parameters ----
+  
+# Age-related probabiliy of severe disease given person is symptomatic
+severe_symptom_age:
+  fn: "logistic"
+  slope: 6
+  mid: 65
+  lower: 0
+  upper: 0.3
+  
+# Age-related probabiliy of critical disease given person is severe
+critical_severe_age:
+  fn: "logistic"
+  slope: 6
+  mid: 100
+  lower: 0.05
+  upper: 1.9
+  
+# Age-related probabiliy of death given person is critical
+death_critical_age:
+  fn: "logistic"
+  slope: 14
+  mid: 90
+  lower: 0
+  upper: 2
+  
+# Scale factors for death when critical in/out of ICU
+death_critical_icu: 0.2
+death_critical_non_icu:	0.95
+
+# Probability of asymptomatic infection
+proportion_asymptomatic: 0.33
+
+# Probability of seeking care if severe
+seek_hospital: 0.75
+
+# Flag for replacing dead people
+replace_dead: no
+
+# Maximum number of (re)-infections to count per person
+max_infections: 3  # Not yet implemented
+
+# Disease state durations
+durations:
+  latency:
+    fn: "rnorm"
+    mean: 4.6
+    sd: 1.0
+  presymptomatic:
+    fn: "rnorm"
+    mean: 3.0
+    sd: 1.0
+  infectious_mild:
+    fn: "rnorm"
+    mean: 6.0
+    sd: 1.0
+  infectious_severe: 
+    fn: "rnorm"
+    mean: 28.0
+    sd: 1.0
+  onset_to_hospital: 
+    fn: "rnorm"
+    mean: 13.0
+    sd: 1.0
+  hospital_stay: 
+    fn: "rnorm"
+    mean: 9.0
+    sd: 1.0
+  hospital_to_icu: 
+    fn: "rnorm"
+    mean: 2.0
+    sd: 1
+  icu_stay: 
+    fn: "rnorm"
+    mean: 7.0
+    sd: 1.0
+  icu_stay_death: 
+    fn: "rnorm"
+    mean: 6.0
+    sd: 1.0
+  hospital_transfer:
+    fn: "rnorm"
+    mean: 2.0
+    sd: 1.0
+  home_death: 
+    fn: "rnorm"
+    mean: 10.0
+    sd: 1.0
+
+# ---- Age and risk structure ----
+
+# Risk groups
+risk_groups:
+  comorbidities:
+    age_lower: 0
+    age_upper: 75
+    probability: 0.08
+  healthcare_worker:
+    age_lower: 18
+    age_upper: 65
+    probability: 0.10
+
+# 90 yearly bins for ages [0-1], (1-2], ..., (89-90+] required
+demography:
+  1: 0.010576408
+  2: 0.010811583
+  3: 0.010896688
+  4: 0.010928522
+  5: 0.010773903
+  6: 0.010815481
+  7: 0.010274967
+  8: 0.010219097
+  9: 0.010108005
+  10: 0.010069676
+  11: 0.009903364
+  12: 0.009705868
+  13: 0.009469393
+  14: 0.009229020
+  15: 0.009076351
+  16: 0.009010736
+  17: 0.008773611
+  18: 0.008846372
+  19: 0.008671615
+  20: 0.009396632
+  21: 0.009362849
+  22: 0.009643501
+  23: 0.010252229
+  24: 0.010779750
+  25: 0.011226064
+  26: 0.012029040
+  27: 0.013095126
+  28: 0.014302188
+  29: 0.015094119
+  30: 0.015867860
+  31: 0.016164753
+  32: 0.016590278
+  33: 0.016572737
+  34: 0.016617563
+  35: 0.016702019
+  36: 0.016664988
+  37: 0.016307028
+  38: 0.016560394
+  39: 0.016357701
+  40: 0.016451901
+  41: 0.015739878
+  42: 0.015550827
+  43: 0.014973933
+  44: 0.014849848
+  45: 0.014560101
+  46: 0.014482792
+  47: 0.014238521
+  48: 0.014273603
+  49: 0.014756298
+  50: 0.014849198
+  51: 0.015016160
+  52: 0.015149989
+  53: 0.015090871
+  54: 0.015155187
+  55: 0.014944048
+  56: 0.014902470
+  57: 0.014335320
+  58: 0.013497263
+  59: 0.012972991
+  60: 0.012270712
+  61: 0.011689269
+  62: 0.011112374
+  63: 0.010712186
+  64: 0.010361371
+  65: 0.009848143
+  66: 0.009359601
+  67: 0.008911338
+  68: 0.009055562
+  69: 0.008541034
+  70: 0.008761267
+  71: 0.008426694
+  72: 0.008458528
+  73: 0.008419548
+  74: 0.008336392
+  75: 0.008068084
+  76: 0.007888779
+  77: 0.007581491
+  78: 0.007091001
+  79: 0.006626496
+  80: 0.005900830
+  81: 0.005523380
+  82: 0.005232333
+  83: 0.004715207
+  84: 0.004624255
+  85: 0.004337107
+  86: 0.003957058
+  87: 0.003471764
+  88: 0.003121599
+  89: 0.002766237
+  90: 0.011291680
+
+# ---- Model metrics ----
+
+# Define model metrics to report and by which grouping
+model_metrics:
+  all_new_infections:
+    report: yes
+    by: age, vaccine_group, variant
+  new_local_infections:
+    report: no
+    by: none
+  new_importations:
+    report: no
+    by: none
+  confirmed:
+    report: yes
+    by: age
+  deaths:
+    report: yes
+    by: age, vaccine_group, variant
+  hospital_beds:
+    report: yes
+    by: age
+  hospital_admissions:
+    report: no
+    by: none
+  icu_beds:
+    report: yes
+    by: age
+  icu_admissions:
+    report: no
+    by: none
+  currently_infected:
+    report: yes
+    by: age, vaccine_group, variant
+  currently_infectious:
+    report: no
+    by: none
+  currently_symptomatic:
+    report: no
+    by: age
+  currently_isolated:
+    report: no
+    by: none
+  recovered:
+    report: no
+    by: none
+  n_vaccinated:
+    report: no
+    by: age, vaccine_group
+  total_vaccinated:
+    report: yes
+    by: age, vaccine_group
+  n_doses:
+    report: yes
+    by: age, vaccine_group
+  n_infections: 
+    report: yes
+  variant_prevalence:
+    report: yes
+  R_effective:
+    report: no
+  seroprevalence:
+    report: yes
+  pop_susceptibility:
+    report: yes
+  pop_prevalence:
+    report: no
+  seasonality:
+    report: yes
+  contact_reduction:
+    report: no
+    
+# ---- Fixed parameters ----
+
+# These parameters are pre-set and SHOULD NOT be altered in your analysis yaml file
+
+# Always run a baseline scenario
+scenarios: 
+- id: "baseline"
+  name: "Baseline scenario"
+
+# Number of contacts placeholder - this is fitted to achieve desired R_eff    
+contacts: 8.5
+    
+# Pre-set vaccine definitions
+vaccine_defintion:
+  pfizer:
+    name: "Pfizer-BioNTech vaccine"
+    efficacy: 0.95
+    transmission_blocking: 0.9
+    growth_fn:
+      fn: "logistic"
+      slope: 5
+      mid: 21
+      upper: 1
+    subsequent_dose_days: 28  # Use 0 for a single dose vaccine
+    booster_efficacy: 0.95
+    booster_growth_days: 7  # Not yet implemented
+    decay_init: 180
+    decay_duration: 180
+  moderna:
+    name: "Moderna vaccine"
+    efficacy: 0.95
+    transmission_blocking: 0.9
+    growth_fn:
+      fn: "logistic"
+      slope: 5
+      mid: 21
+      upper: 1
+    subsequent_dose_days: 28
+    booster_efficacy: 0.95
+    booster_growth_days: 7
+    decay_init: 180
+    decay_duration: 180
+  oxford:
+    name: "Oxford-AstraZeneca vaccine"
+    efficacy: 0.62
+    transmission_blocking: 0.5
+    growth_fn:
+      fn: "logistic"
+      slope: 5
+      mid: 21
+      upper: 1
+    subsequent_dose_days: 28
+    booster_efficacy: 0.95
+    booster_growth_days: 7
+    decay_init: 180
+    decay_duration: 180
+    
+# ---- Calibration parameters ----
+
+# Define parameters to be calibrated
+calibration:
+- param: "contacts"
+  lower: 0
+  upper: Inf
+  

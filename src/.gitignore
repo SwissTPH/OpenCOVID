@@ -1,10 +1,11 @@
-README.html
 .Rhistory
 *.RDS
 *.rds
-scicore*
+README.html
 /my_results.R
 config/my_options.csv
-data/data_cache.rds
+log/
+input/*
+!input/demo.yaml
+!input/omicron.yaml
 output/
-restricted/

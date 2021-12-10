@@ -1,0 +1,108 @@
+---
+
+# A simple example of an input file to run an OpenCOVID demo
+
+# ---- Baseline settings ----
+        
+# Run all simulations for 500 days into the future
+n_days: 500
+n_days_init: -365
+
+# Initial conditions 
+previously_infected: 0.25
+
+# Initiate future at an effective reporduction number of 1.2
+r_eff: 1.2
+
+# Vaccination history
+vaccine_history: 
+- id: high_risk
+  name: "60+ or comorbidities"
+  priority: 1
+  condition: "age >= 60 | comorbidities == TRUE"
+  init_coverage: 0.9
+  init_start: -120  # Days into the past that vaccination program began
+  init_end: -60     # Days into the past that vaccination program ended
+- id: low_risk
+  name: "18-60 year olds"
+  priority: 2
+  condition: "age >= 18 & age < 60"
+  init_coverage: 0.4
+  init_start: -80   # Days into the past that vaccination program began
+  init_end: 0       # Set to zero as vaccination program ongoing
+
+# Vaccination future
+vaccine_rollout: 
+- id: high_risk
+  max_coverage: 0.9
+  max_start: 0  # Set to zero as rollout already complete
+  max_end: 0    # Set to zero as rollout already complete
+- id: low_risk
+  max_coverage: 0.6
+  max_start: 0  # Set to zero as vaccination program ongoing
+  max_end: 70   # Days into the future that vaccination scale up will reach max coverage
+  
+# Vaccine booster rollout (only groups to recieve a booster need to be specified)
+booster_rollout:
+- id: high_risk
+  probability: 0.0   # Probability of accepting/receiving a booster dose - set to zero in the baseline
+  cycle_period: 180  # Booster dose administered every cycle_period days
+  start: -30         # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+- id: low_risk
+  probability: 0.0   # Probability of accepting/receiving a booster dose - set to zero in the baseline
+  cycle_period: 365  # Booster dose administered every cycle_period days
+  start: 100         # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+
+# Initiate a novel variant
+variants_novel:
+- id: deltaplus
+  name: "Delta+ (AY.4.2)"
+  import_day: 50
+  import_number: 0
+  infectivity: 1.0
+  severity: 1.0
+  immuno_escape: 0.05
+- id: epsilon
+  name: "Epsilon"
+  import_day: 2
+  import_number: 0
+  infectivity: 1.0
+  severity: 1.0
+  immuno_escape: 0.25
+  
+# ---- Alternative scenarios ----
+
+# Define a few single scenarios and one array scenario
+scenarios:
+# Single scenario assessing impact of frequent booster doses
+- id: booster
+  name: "Frequent booster doses"
+  booster_rollout: 
+  - id: high_risk
+    probability: 0.95
+  - id: low_risk
+    probability: 0.25
+# Single scenario effect of an immuno-escaping variant
+- id: immuno_escape
+  name: "Immuno escape variant"
+  variants_novel:
+  - id: epsilon
+    name: "Epsilon"
+    import_number: 20
+# Array scenario assessing novel variant infectivty
+- id: deltaplus_array
+  name: "Delta+ variant"
+  variants_novel: 
+  - id: deltaplus
+    name: "Delta+ (AY.4.2)"
+    import_number: 20
+    infectivity:
+      array:
+        id: inf
+        name: "infectivity" 
+        from: 1.0
+        to: 1.5
+        by: 0.1
+

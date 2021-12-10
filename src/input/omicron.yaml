@@ -1,0 +1,260 @@
+---
+
+# ---- Baseline ----
+
+# Number of people to simulate
+population_size: 50000
+
+# Set run time and epidemic start point
+n_days: 240
+n_days_init: -570  # Start March 2020
+
+# Initial conditions 
+previously_infected: 0.3
+
+# Force of infection
+r_eff: 1.2
+
+# Seasonality profile
+seasonality_fn: 
+  fn: "cospi"
+  x:
+    fn: "seq"
+    from: -1
+    to: 1
+    length.out: 365
+seasonality_scaler: 0.3
+seasonality_shift: 275
+
+# Immunity through natural infection
+acquired_immunity:
+  value: 0.9
+  decay_init: 30
+  decay_duration: 335
+
+# Custom vaccine properties
+vaccine_type: "custom"
+vaccine_custom:
+  name: "mRNA vaccine"
+  efficacy: 0.95
+  transmission_blocking: 0.9
+  growth_fn:
+    fn: "logistic"
+    slope: 5
+    mid: 21
+    upper: 1
+  subsequent_dose_days: 28
+  booster_efficacy: 0.95
+  booster_growth_days: 1
+  decay_init: 60
+  decay_duration: 335
+        
+# Vaccination history
+vaccine_history: 
+- id: high_risk
+  name: "65+ or comorbidities"
+  priority: 1
+  condition: "age >= 65 | comorbidities == TRUE"
+  init_coverage: 0.9
+  init_start: -250
+  init_end: -100
+- id: low_risk
+  name: "18-64 year olds"
+  priority: 2
+  condition: "age >= 18 & age < 65"
+  init_coverage: 0.7
+  init_start: -150
+  init_end: 0
+- id: adolescents
+  name: "12-17 year olds"
+  priority: 3
+  condition: "age >= 12 & age < 18"
+  init_coverage: 0.5
+  init_start: -90
+  init_end: 0
+- id: children
+  name: "5-11 year olds"
+  priority: 4
+  condition: "age >= 5 & age < 12"
+  init_coverage: 0.0
+  init_start: 0
+  init_end: 0
+  
+# Vaccination future  
+vaccine_rollout: 
+- id: high_risk
+  max_coverage: 0.9
+  max_start: 0
+  max_end: 0
+- id: low_risk
+  max_coverage: 0.7
+  max_start: 0
+  max_end: 0
+- id: adolescents
+  max_coverage: 0.5
+  max_start: 0
+  max_end: 90
+- id: children
+  max_coverage: 0.0
+  max_start: 0
+  max_end: 180
+
+# Vaccine boosters
+booster_rollout:
+- id: high_risk
+  probability: 0.0
+  cycle_period: 180
+  start: -30 
+  force_start: no
+- id: low_risk
+  probability: 0.0
+  cycle_period: 180
+  start: 0
+  force_start: no
+- id: adolescents
+  probability: 0.0
+  cycle_period: 180
+  start: 0
+  force_start: no
+- id: children
+  probability: 0.0
+  cycle_period: 180
+  start: 0
+  force_start: no
+
+# Initiate a novel variant
+variants_novel:
+- id: omicron
+  name: "Omicron (B.1.1.529)"
+  import_day: 60
+  import_number: 10
+  infectivity: 1.0
+  severity: 1.0
+  immuno_escape: 0.0
+
+# ---- Model metrics ----
+
+# Define model metrics to report and by which grouping
+model_metrics:
+  all_new_infections:
+    report: yes
+    by: variant
+  new_local_infections:
+    report: no
+  new_importations:
+    report: no
+  confirmed:
+    report: no
+  deaths:
+    report: yes
+    by: variant
+  hospital_beds:
+    report: no
+  hospital_admissions:
+    report: no
+  icu_beds:
+    report: yes
+    by: variant
+  icu_admissions:
+    report: no
+  currently_infected:
+    report: no
+  currently_infectious:
+    report: no
+  currently_symptomatic:
+    report: no
+  currently_isolated:
+    report: no
+  recovered:
+    report: no
+  n_vaccinated:
+    report: no
+  total_vaccinated:
+    report: no
+  n_doses:
+    report: yes
+    by: vaccine_group
+  n_infections: 
+    report: no
+  variant_prevalence:
+    report: yes
+  R_effective:
+    report: no
+  seroprevalence:
+    report: no
+  pop_susceptibility:
+    report: yes
+  pop_prevalence:
+    report: no
+  seasonality:
+    report: yes
+  contact_reduction:
+    report: no
+        
+# ---- Scenarios ----
+
+# Array scenario of Omicron properties
+scenarios:
+- id: analysis1
+  name: "Analysis 1"
+  variants_novel:
+  - id: omicron
+    name: "Omicron (B.1.1.529)"
+    infectivity:
+      array:
+        id: inf
+        name: "Infectivity"
+        from: 0.0
+        to: 2.0
+        by: 0.1
+    immuno_escape:
+      array:
+        id: esc
+        name: "Immuno-escape"
+        from: 0.0
+        to: 1.0
+        by: 0.05
+    severity:
+      array:
+        id: sev
+        name: "Severity"
+        from: 0.0
+        to: 2.0
+        by: 0.5
+- id: analysis2
+  name: "Analysis 2"
+  variants_novel:
+  - id: omicron
+    name: "Omicron (B.1.1.529)"
+    infectivity:
+      array:
+        id: inf
+        name: "Infectivity"
+        from: 0.0
+        to: 2.0
+        by: 0.1
+    immuno_escape:
+      array:
+        id: esc
+        name: "Immuno-escape"
+        from: 0.0
+        to: 1.0
+        by: 0.05
+    severity:
+      array:
+        id: sev
+        name: "Severity"
+        from: 0.0
+        to: 2.0
+        by: 0.5
+  vaccine_rollout:
+  - id: adolescents
+    max_coverage: 0.7
+  - id: children
+    max_coverage: 0.5
+  booster_rollout:
+  - id: high_risk
+    probability: 0.95
+  - id: low_risk
+    probability: 0.95
+

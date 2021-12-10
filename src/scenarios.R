@@ -1,135 +1,240 @@
 ###########################################################
 # SCENARIOS
 #
-# Alters model parameters for some predefined past or future 
-# scenario.
-#
-# This function acts on the output of get_parameters 
-# (see parameters.R).
+# Simulates all scenarios defined in yaml file for this 
+# analysis, including baseline.
 #
 ###########################################################
 
 # ---------------------------------------------------------
-# Alter parameters to represent alternative scenarios.
+# Parent function for running scenarios
 # ---------------------------------------------------------
-alter_model_params = function(o, p, scenario) {
+run_scenarios = function(o) {
   
-  # Psuedo 'today' - last date of data
-  today = max(o$dates_data)
+  # Only continue if specified by do_step
+  if (!is.element(2, o$do_step)) return()
   
-  # ---- Past scenario: No historical interventions ----
+  message("* Running all scenarios")
   
-  # Assume we had no interventions in the past
-  if (scenario == "past_evaluation")
-    p$npi_level[] = 0
+  # Check calibration file is suitable
+  check_fit(o)
   
-  # ---- Past scenario: Earlier response (by 2 weeks) ----
+  # ---- Set up full set of simulations ----
   
-  # Start the same response 14 days before actual implementation
+  # All scenarios to simulate
+  all_scenarios = names(parse_yaml(o, "*read*", read_array = TRUE))
   
-  # Shift response timing
-  time_diff = 14
+  # We'll run each simulation for different seeds
+  seed_id = str_pad(1 : o$n_seeds_analysis, 4, pad = "0")
   
-  # Shift timing of past interventions
-  if (scenario == "earlier_npi") {
-    
-    # Cut values to start, add values from end
-    cut_dates = p$npi_level[(time_diff + 1) : o$n_dates]
-    add_dates = rep(p$npi_level[o$n_dates], time_diff)
-    
-    # Concatenate for new contact reduction timing
-    p$npi_level = c(cut_dates, add_dates)
+  # ... and potentially different parameter sets (sampled from fitted posteriors)
+  param_id = str_pad(0 : o$n_parameter_samples, 4, pad = "0")
+  
+  # Full factorial set of cantons, parameter sets, seeds, and simulations
+  all_simulations = expand_grid(param_id = param_id, 
+                                seed     = seed_id, 
+                                scenario = all_scenarios)
+  
+  # Use all of this to create unique simulation identifiers
+  sim_df = all_simulations %>% 
+    mutate(sim_id = unite(all_simulations, "x", sep = "_")$x, 
+           sim_id = paste0("s", sim_id), 
+           seed = as.numeric(seed)) %>%
+    as.data.table()
+  
+  # Save to file for use on the cluster
+  saveRDS(sim_df, file = paste0(o$pth$simulations, "all_simulations.rds"))
+  
+  # ---- Simulate on the cluster ----
+  
+  # We may not want/need to run them all
+  n_simulations = check_existing(o, sim_df)
+
+  # Do we need to simulate at all?
+  if (n_simulations > 0) {
+
+    # Submit all jobs to the cluster (see myRfunctions.R)
+    submit_cluster_jobs(o, n_simulations, "bash_submit.sh", "scenarios")
+
+    # Throw an error if any cluster jobs failed (see myRfunctions.R)
+    stop_if_errors(o$pth$log, o$err_file, err_tol = 1)
+
+    # Remove all log files if desired (generally a good idea unless debugging)
+    if (o$rm_cluster_log) unlink(paste0(o$pth$log, "*"), force = TRUE)
   }
   
-  # ---- Past scenario: Later response (by 2 weeks) ----
+  # ---- Summarise and aggregate results ----
   
-  # Shift response timing
-  time_diff = 14
-  
-  # Shift timing of past interventions
-  if (scenario == "later_npi") {
-    
-    # Add values to start, cut values from end
-    add_dates = rep(0, time_diff)
-    cut_dates = p$npi_level[1 : (o$n_dates - time_diff)]
-    
-    # Concatenate for new contact reduction timing
-    p$npi_level = c(add_dates, cut_dates)
+  # If no new simulations we may be able to skip this step
+  if (o$force_summarise == FALSE && n_simulations == 0) {
+
+    # Summarised file of each scenario
+    summarised_files = paste0(o$pth$scenarios, all_scenarios, ".rds")
+
+    # If all exist and we haven't re-simulated, we're done here
+    if (all(file.exists(summarised_files)))
+      return()
   }
   
-  # ---- Future scenarios: Relax all interventions in two weeks ----
+  message(" - Quantifying parameter and stochastic uncertainty")
   
-  # Alter parameters from two weeks time until end of analysis
-  time_idx = future_time_index(o, from = today + 14) 
+  # Re-save full set of simulations for use on the cluster
+  #
+  # NOTE: Needed as original may have been overwritten in check_existing function
+  saveRDS(sim_df, file = paste0(o$pth$simulations, "all_simulations.rds"))
+
+  # Number of unique scenarios... we'll summarise each on the cluster
+  n_jobs = length(unique(sim_df$scenario))
+
+  # Submit all summarising jobs to the cluster (see myRfunctions.R)
+  submit_cluster_jobs(o, n_jobs, "bash_submit.sh", "summarise")
+
+  # Throw an error if any cluster jobs failed (see myRfunctions.R)
+  stop_if_errors(o$pth$log, o$err_file)
   
-  # Reduce npi_level effect by 20%
-  if (scenario == "relax_npi")
-    p$npi_level[time_idx] = p$npi_level[time_idx] * (1 - 0.2)
+  # Missing simulations that have been imputed
+  files_exist  = str_remove(list.files(o$pth$simulations), ".rds")
+  missing_sims = filter(sim_df, !sim_id %in% files_exist)$sim_id
   
-  # ---- Future scenario: Totally remove all interventions in two weeks ----
+  if (length(missing_sims) > 0)
+    warning("Imputed values for ", length(missing_sims), " missing simulation(s):\n", 
+            paste(missing_sims, collapse = "\n"))
   
-  # NOTE: People revert back to 'normal' behaviour
-  
-  # Alter parameters from two weeks time until end of analysis
-  time_idx = future_time_index(o, from = today + 14) 
-  
-  # Totally remove npi_level effect
-  if (scenario == "remove_npi")
-    p$npi_level[time_idx] = 0
-  
-  # ---- Example vaccine modelling scenarios ----
-  
-  # Vaccinate 10k people everyday from tomorrow
-  if (scenario == "vaccine_10k")
-    p$number_vaccines[future_time_index(o)] = 10000
-  
-  # Vaccinate 25k people everyday from tomorrow
-  if (scenario == "vaccine_25k")
-    p$number_vaccines[future_time_index(o)] = 25000
-  
-  # ---- Sanity checks ----
-  
-  # Sanity check on length of npi_level vector
-  if (length(p$npi_level) != o$n_dates)
-    stop("We seem to have gained/lost time")
-  
-  return(p)
+  # Remove all log files if desired (generally a good idea unless debugging)
+  if (o$rm_cluster_log) unlink(paste0(o$pth$log, "*"), force = TRUE)
 }
 
 # ---------------------------------------------------------
-# Get indices of time points for altering parameters.
+# Check that calibration is still suitable
 # ---------------------------------------------------------
-future_time_index = function(o, from = max(o$dates_data) + 1, to = NULL) {
+check_fit = function(o) {
   
-  # Default end point as final date of analysis
-  if (is.null(to)) to = max(o$dates_all)
+  # Load model fitting result - throw an error if it doesn't exist
+  err_msg = "Cannot find a fitting file for this analysis - have you run step 1?"
+  fit_result = try_load(o$pth$fitting, "fit_result", msg = err_msg)
   
-  # Ensure any specified end point is not after last point of simulation
-  to = min(to, max(o$dates_all))
+  # Load current baseline - we need to check input hasn't changed
+  baseline = parse_yaml(o, scenario = "baseline")
   
-  # Consider trivial case where first point is after end point of analysis
-  if (from > max(o$dates_all)) time_idx = NULL
+  # Remove items that it is ok to change (see o$fit_changeable_items)
+  fit_input = list.remove(fit_result$fit_input, o$fit_changeable_items)
+  baseline_input = list.remove(baseline$parsed, o$fit_changeable_items)
+
+  # Are these two lists identical - if yes we are done here
+  check_flag = setequal(baseline_input, fit_input)
   
-  else # All indices between 'to' and 'from' dates
-    time_idx = which(o$dates_all == from) : which(o$dates_all == to)
+  # If yes, we are done here
+  if (check_flag == TRUE)
+    return()
   
-  return(time_idx) 
+  # If not, try to find the issue and report back to user...
+  
+  # Create a standard error message - user will need to rerun step 1
+  rerun_msg = "Your calibration file contains inconsistencies and must be rerun\n\n"
+  
+  # First check for missing items
+  missing_items = symdiff(names(baseline_input), names(fit_input))
+  
+  # Throw an error if any parameters missing in either file
+  if (length(missing_items) > 0)
+    stop(rerun_msg, "! Parameters missing from calibration or baseline file: ", 
+         paste(missing_items, collapse = ", "))
+  
+  # We'll then search for inconsistent parameters
+  inconsistent_items = character()
+  
+  # Loop through all non-changeable parameters
+  for (param in names(fit_input)) {
+    
+    # Check for consistency between baseline and fitted file
+    check_flag = setequal(fit_input[[param]], baseline_input[[param]])
+    
+    # If any inconsistency is identified, store parameter name
+    if (check_flag == FALSE)
+      inconsistent_items = c(inconsistent_items, param)
+  }
+  
+  # Throw an error if any parameters are inconsistent
+  if (length(inconsistent_items) > 0)
+    stop(rerun_msg, "! Inconsistent parameters in calibration and baseline files: ", 
+         paste(inconsistent_items, collapse = ", "))
+  
+  # If we've got this far, we've identified a problem, but not sire where it is
+  stop(rerun_msg, "! Unknown error")
 }
 
 # ---------------------------------------------------------
-# Define descriptive names associated with scenarios
+# Check if we can avoid rerunning any existing simulations
 # ---------------------------------------------------------
-scenario_names = function(o) {
+check_existing = function(o, sim_df) {
   
-  # Named vector of scenario IDs and descriptive names to display on plots
-  scenario_dict = qc(past_evaluation = "No previous interventions", 
-                     earlier_npi     = "NPIs two weeks earlier", 
-                     later_npi       = "Response measures two weeks later", 
-                     relax_npi       = "20% decrease in response measures",  
-                     remove_npi      = "Remove all interventions tomorrow", 
-                     vaccine_10k     = "Vaccinate 10k people each day", 
-                     vaccine_25k     = "Vaccinate 25k people each day")
+  # Start by assuming we'll need to rerun everything
+  run_df  = sim_df
+  n_total = nrow(run_df)
   
-  return(scenario_dict)
+  message(" - Total number of simulations: ", thou_sep(n_total))
+  
+  # Simulations that already exist (ie from previous analyses)
+  files_exist = str_remove(list.files(o$pth$simulations), ".rds")
+  sims_exist  = filter(sim_df, sim_id %in% files_exist)
+  
+  # Do we want to avoid overwriting any previously run simulations?
+  if (o$overwrite_simulations == FALSE && nrow(sims_exist) > 0) {
+    
+    # We won't overwrite - only rerun any missing simulations any with inconsistent yamls
+    if (o$check_yaml_consistency == TRUE) {
+      
+      message("  > Checking consistency of YAML files")
+      
+      # Load fitted parameters - we'll need to rerun if these have changed
+      fit_result = try_load(o$pth$fitting, "fit_result")$fit_output
+      
+      # Assess each scenario that already exists
+      for (scenario_exist in unique(sims_exist$scenario)) {
+        
+        # Only need to look at one simulation - load it and extract input list
+        check_sim   = filter(sims_exist, scenario == scenario_exist)[1, ]
+        check_input = try_load(o$pth$simulations, check_sim$sim_id)$input
+        
+        # How the input looks now - direct from the current yaml
+        test_input = parse_yaml(o, scenario_exist, read_array = TRUE)$parsed
+        
+        # Apply calibrated parameters - important that these are the same
+        test_input[names(fit_result)] = fit_result
+        
+        # Compare all items in these two lists - aside from calibrated parameters
+        check_flag = setequal(check_input, test_input)
+        
+        # If lists are identical, we can safely skip
+        if (check_flag == TRUE) {
+          
+          # IDs of sims that have already been run - might not be all
+          skip_sims = run_df %>%
+            filter(scenario == scenario_exist) %>%
+            pull(sim_id) %>%
+            intersect(files_exist)
+          
+          # Remove these from run_df 
+          run_df = filter(run_df, !sim_id %in% skip_sims)
+        }
+      }
+    }
+    
+    # Alternatively, don't bother checking yaml consistency - won't overwrite regardless
+    if (o$check_yaml_consistency == FALSE)
+      run_df = filter(run_df, !sim_id %in% files_exist)
+    
+    # Save to file for use on the cluster
+    saveRDS(run_df, file = paste0(o$pth$simulations, "all_simulations.rds"))
+  }
+  
+  # Updated number of simulations that need to be run / re-run
+  n_run = nrow(run_df)
+  
+  # Report this back to the user
+  message("  > Skipping: ", thou_sep(n_total - n_run))
+  message("  > Simulating: ", thou_sep(n_run))
+  
+  return(n_run)
 }
 

@@ -1,9 +1,8 @@
 ###########################################################
 # MY RESULTS
 #
-# A sandbox for you to produce plots using model outcomes 
-# and/or data. All plotting utility functions can be used
-# here.
+# A sandbox for you to produce plots using model outcomes.
+# All plotting utility functions can be used here.
 #
 # IMPORTANT NOTE: 
 # To use, save a new copy of this file as "my_results.R" 
@@ -17,10 +16,10 @@
 # - Check out the inputs of the figure_properties function. 
 #   This can help you to slice model outcomes in all sorts
 #   of different ways.
-# - The functions format_data and format_results take any
-#   scenario file and slice the data / model results according
-#   to the arguments provided to figure_properties. This is
-#   super useful to collate and slice into plotting dataframes.
+# - The function format_results can take any scenario file
+#   and slice model outcomes according to the arguments
+#   provided to figure_properties. This is super useful to
+#   collate and slice into plotting dataframes.
 # - Check out the save_fig function for easy saving and 
 #   consistent-looking figures.
 #
@@ -28,68 +27,40 @@
 
 my_results = function(o) {
   
-  message("  > Place your custom plotting functions here!")
+  message(" - Custom figures")
   
   
-  
-  # Some examples using the "relax_npi" scenario to get you started...
-  
-  # NOTES: 
-  #  - You will need to actually run the scenario 'relax_npi' for these to actually work
-  #  - You could just as easily define a strategy, or even a subset of scenarios from a strategy
-  
-  
-  
+  # Some examples for the 'booster' scenario from 'demo' analysis to get you started.
+  # You will need to run steps 1-3 for the 'demo' analysis for these to work.
   
   
   # 1) ---- Plot using in-built plotting functions ----
   
   # Plot the impact of the vaccine scenario against the baseline
   fig_name = c("My awesome plot using in-built plotting functions")
-  plot_temporal(o, "CH", fig_name, scenarios = "relax_npi", everything = TRUE)
+  plot_temporal(o, fig_name, scenarios = "booster")
   
   
   
   
+  # 2) ---- A custom plot ----
   
-  # 2) ---- A custom temporal plot using the helper functions ----
+  # Load the scenario file - model output and input contained within
+  result = try_load(o$pth$scenarios, "booster")
   
-  # Load the scenario file - model output and data and contained within
-  a = readRDS(paste0(o$pth$scenario, "CH_relax_npi.rds"))
+  # Reduce down this output to something plottable
+  model_output = result$output %>%
+    filter(metric %in% c("all_new_infections", "deaths"), 
+           grouping == "vaccine_group")
   
-  # Let's call figure_properties to define who we slice the model output and data
-  f = figure_properties(o, plot_baseline = FALSE, scenarios = "relax_npi", 
-                        plot_metrics = c("confirmed", "deaths"), 
-                        plot_by = "age", plot_from = "2020-09-01")
-  
-  # Apply the slicing to the model results
-  model_results = format_results(o, f, a)
-  
-  # Plot a simple line chart over time for each age group for the two metrics
-  g = ggplot(model_results, aes(x = date, y = value, colour = group)) + 
-    geom_line() +
+  # Plot lines over time for each vaccine prioriy group for the two metrics
+  g = ggplot(model_output, aes(x = date, y = mean, colour = group)) + 
+    geom_ribbon(aes(ymin = lower, ymax = upper, fill = group), 
+                linetype = 0, alpha = 0.3) + 
+    geom_line(size = 2) +
     facet_wrap(~metric, scales = "free_y")
   
   # Save the plot to file
-  save_fig(o, g, "My awesome plot")
-  
-  
-  
-  
-  
-  # 3) ---- Going it alone! Plotting without the helper functions ----
-  
-  # Load the scenario file - model output and data and contained within
-  a = readRDS(paste0(o$pth$scenario, "CH_relax_npi.rds"))
-  
-  # Reduce down this output to something plottable
-  model_results = a$model_output %>%
-    filter(metric %in% c("confirmed", "deaths"), 
-           grouping == "vaccine_priority")
-  
-  # Plot a simple line chart over time for each vaccine priority group for the two metrics
-  g = ggplot(model_results, aes(x = date, y = value)) + 
-    geom_area(aes(colour = group, fill = group)) +
-    facet_wrap(~metric, scales = "free_y")
+  fig_save(o, g, "My awesome custom plot")
 }
 

@@ -1,29 +1,68 @@
 ###########################################################
 # POST PROCESS
 #
-# Process model output and data ready for plotting.
+# Process model output ready for plotting.
 #
 ###########################################################
 
 # ---------------------------------------------------------
 # Format model outcomes ready for plotting
 # ---------------------------------------------------------
-format_results = function(o, f, a) {
+format_results = function(o, f, results) {
   
-  # Remove trivial model output before outbreak start
-  plot_from = max(f$plot_from, o$dates_all[a$fit_data$outbreak_start])
+  # Check if we're plotting a single simulation
+  if ("value" %in% names(results$output)) {
+    
+    # If so, append trivial bounds
+    output_df = results$output %>%
+      mutate(lower = value, 
+             upper = value, .after = value)
+    
+  } else {  # Otherwise select summary statistic of choice
+    output_df = results$output %>%
+      rename(value = o$best_estimate_simulation)
+  }
   
   # Reduce model output down to what we're interested in
-  model_df = a$model_output %>%
-    rename(value = o$best_estimate_simulation) %>%
-    filter(date >= plot_from, 
+  model_df = output_df %>%
+    filter(date >= f$plot_from, 
            date <= f$plot_to, 
-           metric %in% f$metrics) %>% 
+           metric %in% f$metrics, 
+           !is.na(value)) %>% 
     mutate(metric = factor(metric, levels = f$metrics))
   
-  # Plotting by some disaggregation - filter for only such results
+  # ---- Scale metrics per n person days ----
+  
+  # Scaler required (based on number simulated)
+  scaler = results$input$population_size / f$person_days
+  
+  # Vector of metrics to be scaled
+  scale_metrics = results$input$metrics$df %>%
+    filter(scaled == TRUE) %>%
+    pull(metric)
+  
+  # Row indices of model_df to be scaled
+  scale_idx = model_df$metric %in% scale_metrics
+  
+  # Apply this scaler to the relevant metrics
+  model_df[scale_idx, ] = model_df[scale_idx, ] %>%
+    mutate(value = value * scaler, value, 
+           lower = lower * scaler, lower, 
+           upper = upper * scaler, upper)
+  
+  # ---- Aggregate if desired ----
+  
+  # Plotting by some disaggregation
   if (f$plot_type == "group") {
-    model_df = filter(model_df, grouping == f$plot_by) %>% select(-grouping)
+    
+    # Levels of factors
+    group_levels = results$input$count[[f$plot_by]]
+    
+    # Filter for only such results and convert to factors
+    model_df = model_df %>%
+      filter(grouping == f$plot_by) %>% 
+      mutate(group = factor(group, levels = group_levels)) %>% 
+      select(-grouping)
     
     # Plotting by age is a special case - group by age classification
     if (f$plot_by == "age")
@@ -50,11 +89,14 @@ format_results = function(o, f, a) {
       mutate(group = NA)
   }
   
+  # ---- Format output ----
+  
   # Check cumulative flag
   if (f$cumulative == TRUE) {
     
     # Cumulatively sum over time if requested
-    model_df = group_by(model_df, metric, scenario, group) %>%
+    model_df = model_df %>% 
+      group_by(metric, scenario, group) %>%
       mutate(value = cumsum(value), 
              lower = cumsum(lower), 
              upper = cumsum(upper))
@@ -66,54 +108,6 @@ format_results = function(o, f, a) {
     arrange(scenario, metric, group, date)
   
   return(model_df)
-}
-
-# ---------------------------------------------------------
-# Format data ready for plotting
-# ---------------------------------------------------------
-format_data = function(o, f, a) {
-  
-  # Check that data is appended
-  if (is.null(a$fit_data))
-    stop("Data not inherited from fitting process")
-  
-  # Grouping of data requested
-  if (is.null(f$plot_by)) this_grouping = c("none", "na") else this_grouping = f$plot_by
-  
-  # Filter to leave only what we're interested in
-  data_df = a$fit_data$epi %>%
-    filter(grouping %in% this_grouping, 
-           metric %in% f$metrics, 
-           date >= f$plot_from,
-           date <= f$plot_to, 
-           !is.na(value)) %>%
-    select(-grouping) %>%
-    mutate(metric = factor(metric, levels = f$metrics))
-  
-  # If grouping is not trivial, set factors to preserve ordering
-  if (!is.null(f$plot_by)) {
-    
-    # Levels of factors
-    group_levels = o[[paste0("count_", f$plot_by)]]
-    
-    # Apply these levels
-    data_df = mutate(data_df, group = factor(group, levels = group_levels))
-  }
-  
-  # Check cumulative flag
-  if (f$cumulative == TRUE) {
-    
-    # Cumulatively sum over time if requested
-    data_df = group_by(data_df, metric, group) %>%
-      mutate(value = cumsum(value)) %>%
-      as.data.table()
-  }
-  
-  # If no data identified, return NULL value
-  if (nrow(data_df) == 0)
-    data_df = NULL
-  
-  return(data_df)
 }
 
 # ---------------------------------------------------------
@@ -148,7 +142,7 @@ group_ages = function(o, df) {
     summarise(value = sum(value),
               lower = sum(lower),
               upper = sum(upper)) %>%
-    as.data.frame()
+    as.data.table()
   
   return(age_df)
 }

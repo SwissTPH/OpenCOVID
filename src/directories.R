@@ -13,7 +13,7 @@
 # ---------------------------------------------------------
 # Define paths for project inputs and outputs
 # ---------------------------------------------------------
-set_dirs = function(o) {
+set_dirs = function(o, force_analysis_name = NULL) {
   
   # Initiate file path lists
   pth = out = list()
@@ -21,77 +21,56 @@ set_dirs = function(o) {
   # We've already moved to code directory
   pth$code = getwd()
   
-  # Parent path of all input files
-  pth$config = file.path(pth$code, "config")
-  pth$data   = file.path(pth$code, "data")
+  # Path to cluster log files
+  out$log = file.path(pth$code, "log")
   
   # ---- Input files ----
+  
+  # Parent path of all input files
+  pth$input  = file.path(pth$code, "input")
+  pth$config = file.path(pth$code, "config")
+  pth$data   = file.path(pth$code, "data")
   
   # Paths to specific configuration files
   pth$states     = file.path(pth$config, "state_flows.xlsx")
   pth$metrics    = file.path(pth$config, "model_metrics.xlsx")
-  pth$calib_file = file.path(pth$config, "model_parameters.xlsx")
-  pth$calib_mult = file.path(pth$config, "calibration_weights.csv")
-  pth$response   = file.path(pth$config, "response_efficacy.csv")
-  pth$cantons    = file.path(pth$config, "canton_codes.csv")
-  pth$stations   = file.path(pth$config, "weather_stations.txt")
   pth$my_options = file.path(pth$config, "my_options.csv")
   
-  # Paths to specific data files
-  pth$capacity = file.path(pth$data, "data_icu_capacity.csv")
-  pth$seroprev = file.path(pth$data, "data_seroprevalence.csv")
-  pth$risk_pop = file.path(pth$data, "data_risk_groups.csv")
-  pth$disease  = file.path(pth$data, "disease_probabilities.csv")
-  pth$variants = file.path(pth$data, "variant_properties.csv")
-  pth$vaccines = file.path(pth$data, "vaccine_properties.csv")
-  
-  # ---- Analysis and calibration names ---
+  # ---- Sub folder location (analysis name) ----
   
   # If user has a 'my options' file, load it
   if (file.exists(pth$my_options)) {
     
-    # Check whether analysis or calibration names have been defined
-    overwrite_names = read.csv(pth$my_options) %>%
-      filter(option %in% qc(analysis_name, calibration_name))
+    # Check whether analysis name has been defined
+    overwrite = filter(read.csv(pth$my_options), option == "analysis_name")
     
-    # If so, overwrite any names as defined in options.R
-    for (i in seq_len(nrow(overwrite_names)))
-      o[[overwrite_names[i, ]$option]] = overwrite_names[i, ]$value
+    # If so, overwrite value defined in options.R
+    if (length(overwrite$value) > 0)
+      o$analysis_name = overwrite$value
   }
   
-  # If calibration_name is yet to be defined, set it as analysis name
-  if (is.na(o$calibration_name))
-    o$calibration_name = o$analysis_name
-  
-  # Also store full set of canton names - useful when loading data
-  o$all_switzerland = read.csv(pth$cantons)$code    # With national level
-  o$all_cantons = setdiff(o$all_switzerland, "CH")  # Without national level
+  # Force overwrite this if desired
+  if (!is.null(force_analysis_name))
+    o$analysis_name = force_analysis_name
   
   # ---- Output directories ----
   
   # Parent path of all output files
   pth_output = file.path(pth$code, "output")
   
-  # Paths to emulator directories
+  # Path to test run files
   out$testing = file.path(pth_output, "0_testing")
   
-  # Paths to emulator directories
-  out$emulator = file.path(pth_output, "1_emulator", o$calibration_name)
-  out$samples  = file.path(out$emulator, "samples*")
+  # Path to calibration files
+  out$fitting = file.path(pth_output, "1_calibration", o$analysis_name)
   
-  # Paths to calibration directories
-  out$fitting  = file.path(pth_output, "2_calibration", o$calibration_name)
-  out$chains   = file.path(out$fitting, "chains")
-  out$archive  = file.path(out$fitting, "archive")
+  # Paths to scenario files
+  out$scenarios   = file.path(pth_output, "2_scenarios", o$analysis_name)
+  out$simulations = file.path(out$scenarios, "simulations")
+  out$arrays      = file.path(out$scenarios, "array_info")
   
-  # Paths to analysis directories
-  out$analysis = file.path(pth_output, "3_analyses", o$analysis_name)
-  out$sims     = file.path(out$analysis, "simulations")
-  out$scenario = file.path(out$analysis, "scenarios")
-  out$strategy = file.path(out$analysis, "strategies")
-  
-  # Path to figures (all outputs now directed to this one folder)
-  out$figures  = file.path(pth_output, "4_figures", o$analysis_name)
+  # Path to figures and other outputs
+  out$figures = file.path(pth_output, "3_figures", o$analysis_name)
   
   # ---- Create directory structure ----
   

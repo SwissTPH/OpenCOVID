@@ -12,7 +12,7 @@
 
 # Load R
 module purge
-ml R/3.6.0-foss-2018b
+ml R/4.1.0-foss-2018b
 
 # Call main launch script
 Rscript launch.R

@@ -1,5 +1,5 @@
 ###########################################################
-# MY R FUNCTIONS
+# AUXILIARY FUNCTIONS
 #
 # A series of helpful R functions.
 #
@@ -17,8 +17,10 @@ check_cluster_jobs = function(o, action = "error") {
   # If this is non-zero then action needed
   if (sum(unlist(n_jobs)) > 0) {
     
+    # TODO: Extend this by offering additional options (eg warning or prompt)
+    
     # Throw an error
-    if (action == "error")
+    if (action != "none")
       stop("You currently have jobs submitted to the cluster, this may lead to unexpected results.")
   }
 }
@@ -83,13 +85,13 @@ colour_scheme = function(map, pal = NULL, n = 1) {
 # ---------------------------------------------------------
 create_bash_log = function(pth, log = NULL, err = NULL) {
   for (this_name in c(log, err)) {
-    this_file = file.path(pth, this_name)
+    this_file = paste0(pth, this_name)
     if (file.exists(this_file)) file.remove(this_file)
     Sys.sleep(0.1)
     file.create(this_file)
     Sys.sleep(0.1)
   }
-  return(file.path(pth, log))
+  return(paste0(pth, log))
 }
 
 # ---------------------------------------------------------
@@ -119,6 +121,15 @@ format_date = function(dates, convert = "ymd") {
 }
 
 # ---------------------------------------------------------
+# Convert list to datatable
+# ---------------------------------------------------------
+list2dt = function(x, ...) {
+  dt = rbindlist(lapply(x, as.data.table), ...)
+  return(dt)
+}
+  
+
+# ---------------------------------------------------------
 # Logistic curve
 # ---------------------------------------------------------
 logistic = function(x, slope, mid, lower = 0, upper = 1) {
@@ -129,16 +140,16 @@ logistic = function(x, slope, mid, lower = 0, upper = 1) {
 # ---------------------------------------------------------
 # Parameter transformation: put a probability on the real number line
 # ---------------------------------------------------------
-logit <- function(p) {
-  z <- log(p / (1 - p))
+logit = function(p) {
+  z = log(p / (1 - p))
   return(z)
 }
 
 # ---------------------------------------------------------
 # Parameter transformation: inverse of the above
 # ---------------------------------------------------------
-logit_inv <- function(p_logit) {
-  z <- exp(p_logit) / (exp(p_logit) + 1)
+logit_inv = function(p_logit) {
+  z = exp(p_logit) / (exp(p_logit) + 1)
   return(z)
 }
 
@@ -169,6 +180,15 @@ n_slurm_jobs = function(user) {
 }
 
 # ---------------------------------------------------------
+# Sub a directory name within a file path string
+# ---------------------------------------------------------
+pth_replace = function(pth, dir, dir_replace, sep = file_sep()) {
+  new_pth = gsub(paste0(sep, dir, sep), 
+                 paste0(sep, dir_replace, sep), pth)
+  return(new_pth)
+}
+
+# ---------------------------------------------------------
 # Suppress output from a function call
 # ---------------------------------------------------------
 quiet = function(x) { 
@@ -184,7 +204,7 @@ quiet = function(x) {
 # ---------------------------------------------------------
 # Wrapper for consistent behaviour of base::sample when length(x) is one
 # ---------------------------------------------------------
-sample_vec = function(x, ...) x[sample(length(x), ...)]
+sample_vec = function(x, ...) x[sample.int(length(x), ...)]
 
 # ---------------------------------------------------------
 # Initiate progress bar with normal-use options
@@ -198,34 +218,40 @@ start_progress_bar = function(n_tasks) {
 # ---------------------------------------------------------
 # Check for cluster errors, stop if any found
 # ---------------------------------------------------------
-stop_if_errors = function(pth, err, msg = NULL) {
+stop_if_errors = function(pth, err, err_tol = 0, msg = NULL) {
   
   # Set default error message
   if (is.null(msg))
     msg = "Fatal errors when running cluster jobs"
   
   # Check the error file exists
-  err_file = file.path(pth, err)
+  err_file = paste0(pth, err)
   if (file.exists(err_file)) {
     
     # Load errors from file and convert to vector
     errors = readLines(err_file)
     
     # Stop if any errors, and display them all
-    if (length(errors) > 0)
+    if (length(errors) >= (err_tol + 1))
       stop(msg, " (", length(errors), " errors)\n\n", 
            paste(errors, collapse = "\n"))
   }
 }
 
 # ---------------------------------------------------------
+# Convert comma-seperated string to vector of elements
+# ---------------------------------------------------------
+str2vec = function(x, v) {
+  x[[v]] = x[[v]] %>% 
+    str_split(",", simplify = TRUE) %>% 
+    str_remove_all(" ")
+  return(x)
+}
+
+# ---------------------------------------------------------
 # Submit jobs to the cluster and wait until they are complete
 # ---------------------------------------------------------
 submit_cluster_jobs = function(o, n_jobs, bash_file, ...) {
-  
-  # If user does 
-  if (isFALSE(system("sinfo -V") == 0))
-    stop("This OpenCOVID feature requires a slurm-based cluster connection") 
   
   # Skip if no jobs to run
   if (n_jobs > 0) {
@@ -234,10 +260,12 @@ submit_cluster_jobs = function(o, n_jobs, bash_file, ...) {
     check_cluster_jobs(o, action = o$cluster_conflict_action)
     
     # Create a new log file for the cluster jobs (see myRfunctions.R)
-    log_file = create_bash_log(o$pth$code, log = o$log_file, err = o$err_file)
+    log_file = create_bash_log(o$pth$log, log = o$log_file, err = o$err_file)
     
     # Construct sbatch array command for running in parallel
     sbatch_array = paste0("--array=1-", n_jobs, "%", o$job_limit)
+    
+    # TODO: Perform some checks on these user defined options...
     
     # Format user-defined options into sbatch-interpretable options
     sbatch_options = c(paste0("--partition=", o$cluster_partition), 
@@ -264,6 +292,11 @@ submit_cluster_jobs = function(o, n_jobs, bash_file, ...) {
     wait_for_jobs(o, log_file, n_jobs)
   }
 }
+
+# ---------------------------------------------------------
+# Bi-directional setdiff - elements not in both x and y
+# ---------------------------------------------------------
+symdiff = function(x, y) setdiff(union(x, y), intersect(x, y))
 
 # ---------------------------------------------------------
 # Format a number with thousand mark separators
@@ -302,6 +335,8 @@ try_load = function(pth, file, msg = NULL, type = "rds", throw_error = TRUE, sep
   # Check whether file exists
   if (file.exists(file_name)) {
     
+    # TODO: Wrap this in a try-catch block
+    
     # Get the loading function and load the file
     file_contents = get(loading_fnc)(file_name)
     
@@ -320,10 +355,19 @@ try_load = function(pth, file, msg = NULL, type = "rds", throw_error = TRUE, sep
 }
 
 # ---------------------------------------------------------
+# Unlist and return names with seperator of choice
+# ---------------------------------------------------------
+unlist_format = function(x, sep = "$", ...) {
+  y = unlist(x, ...)
+  names(y) = gsub("\\.", sep, names(y))
+  return(y)
+}
+
+# ---------------------------------------------------------
 # Wait until all cluster jobs have finished
 # ---------------------------------------------------------
 wait_for_jobs = function(o, log_file, n_lines, 
-                         wait_time = 1, pause_time = 2) {
+                         wait_time = 1, pause_time = 5) {
   
   # Wait for log file to be created
   while (!file.exists(log_file)) Sys.sleep(wait_time)
@@ -367,8 +411,12 @@ wait_for_jobs = function(o, log_file, n_lines,
   # Number of jobs not reported in log file
   n_missing = n_lines - nrow(read.table(log_file))
   
-  # Tell user how many jobs did not successfully complete
-  if (n_missing > 0)
-    message("!! Batch job finished with ", n_missing, " errors !!")
+  # A problem if this is non-zero
+  if (n_missing > 0) {
+    
+    # Append this error message to an error log file
+    err_message = paste0(" ! ", n_missing, " batch job(s) did not finish")
+    write(err_message, file = paste0(o$pth$log, o$err_file), append = TRUE)
+  }
 }
 

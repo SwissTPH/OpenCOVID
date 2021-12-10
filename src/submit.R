@@ -1,7 +1,7 @@
 ############################################################
 # SUBMIT
 #
-# Submit model simulations from a cluster array.
+# Submit cluster tasks from a cluster array.
 #
 ############################################################
 
@@ -12,26 +12,29 @@ args = commandArgs(trailingOnly = TRUE)
 
 # Name arguments when provided from bash
 if (length(args) > 0) {
-  sim_type = as.character(args[1])
-  task_id  = as.numeric(args[2])
+  job_type = as.character(args[1])
+  job_id   = as.numeric(args[2])
   
 } else {  # Otherwise define some defaults - used for testing and debugging
-  sim_type = "calibration::0"
-  task_id  = 1
+  job_type = "scenarios"
+  job_id   = 1
 }
 
-# Call main function and catch any errors
+# Reload simulation options (see options.R)
+o = set_options()
+
+# Run task defined by job_type for job_id and catch any error
 tryCatch(
-  expr = do_simulate(sim_type, task_id),  # See simulate.R
+  run_cluster_job(o, job_type, job_id),  # See cluster_jobs.R
   
   # Error handler
   error = function(e) {
     
     # Concatenate (ideally useful) error message
-    err_message = paste0(" ! ", e$message, " (array ID: ", task_id, ")")
+    err_message = paste0(" ! ", e$message, " (array ID: ", job_id, ")")
     
     # Append this error message to an error log file
-    write(err_message, file = "scicore_error.txt", append = TRUE)
+    write(err_message, file = paste0(o$pth$log, o$err_file), append = TRUE)
   },
   
   # Close up
