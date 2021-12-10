@@ -1,9 +1,11 @@
 # OpenCOVID
-This git-repository contains current reports and source-code for OpenCOVID, an individual based model of SARS-CoV-2 dynamics for studying transmission dynamics and epidemiology, and the impacts of interventions against SARS-CoV-2 transmission and COVID-19 disease.
+This git-repository contains source-code for OpenCOVID, an individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynamics. From version 2.0 onwards, the model is setting-agnostic.
 
-Reports
+Verson 2.0
+
+Related manuscripts
 ======
-Our model and recent analysis is described here [Impact of vaccination and non-pharmaceutical interventions on SARS-CoV-2 dynamics in Switzerland](https://github.com/SwissTPH/OpenCOVID/blob/manuscript_march_2021/OpenCOVID%20manuscript%2020210323.pdf)
+Original paper with detailed model description: [Impact of vaccination and non-pharmaceutical interventions on SARS-CoV-2 dynamics in Switzerland](https://github.com/SwissTPH/OpenCOVID/blob/manuscript_march_2021/OpenCOVID%20manuscript%2020210323.pdf)
 
 Developers and maintainers:
 =============
