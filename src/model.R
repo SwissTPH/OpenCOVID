@@ -65,8 +65,10 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
   for (state in p$model_states$all)
     states[[state]] = rep(0, p$n_days)
   
-  # Preallocate vector needed to calculate effective reproduction number
-  infectious_time = rep(0, p$n_days)
+  # Preallocate lists for calculation of effective reproduction number
+  serial_int = vector("list", p$n_days)
+  incidence  = list(local  = rep(0, p$n_days), 
+                    import = rep(0, p$n_days))
   
   # Preallocate model output datatable (denoted 'm' for short)
   m = preallocate_output(p)
@@ -172,17 +174,16 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
              rand = runif(n()), 
              transmission = rand < probability) %>% 
       filter(transmission == TRUE) %>%  # Only interested in transmission events
-      rename(transmission_to = to) %>%  # Just for readability / ease of interpretation
-      group_by(transmission_to) %>%  # Uniqueness then guaranteed
-      summarise(transmission_from = first(from)) %>%  # Only consider first transmission if multiple
-      mutate(variant = ppl[transmission_from, variant]) %>%  # Variant is passed down from infector
+      group_by(to) %>%  # Uniqueness then guaranteed
+      summarise(from = first(from)) %>%  # Only consider first transmission if multiple
+      mutate(variant = ppl[from, variant]) %>%  # Variant is passed down from infector
       as.data.table()
     
     # NOTE: If desirable, we could here store number of people infected by each individual - could 
     #       be useful if looking at the effects on removing key individuals from transmission chain
     
     # Extract the IDs and variants of new local transmissions
-    local_id      = transmission_df$transmission_to 
+    local_id      = transmission_df$to 
     apply_variant = transmission_df$variant
     
     # Begin infections for these people
@@ -255,23 +256,12 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
     
     # ---- Effective reproduction number ----
     
-    # INTERPRETATION: New onwards infections per person over the course of one's infection
+    # Store incidence in this time step
+    incidence$local[i]  = length(local_id)
+    incidence$import[i] = length(import_id)
     
-    # Currently infectious in this time step
-    infectious_time[i] = length(all_infectious)
-    
-    # Avoid divide by 0 (occurs if on one is currently infectious)
-    if (i > p$infectious_period) {
-      
-      # Number of people infectious infectious_period days ago
-      prevously_infectious = infectious_time[i - p$infectious_period]
-      
-      # Calculate effective reproductive number using number newly infected this time step
-      R_effective = length(newly_infected_id) / (prevously_infectious / p$infectious_period)
-      
-      # Store in model output datatable
-      m = update_output(m, p, i, "R_effective", R_effective)
-    }
+    # Also store serial interval for every infection
+    serial_int[[i]] = ppl[id %in% transmission_df$from, days_infected]
     
     # ---- Hospital metrics ----
     
@@ -361,8 +351,11 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
   # Produce plot of disease and care states over time
   if (do_plot) plot_disease_state(o, p, states)
   
+  # Calculate effective reproduction number from incidence and serial interval
+  R_info = calculate_Reff(incidence, unlist(serial_int), p$r_eff_window)
+
   # Prepare final model output
-  results = format_output(o, p, m, network, ppl, yaml, seed)
+  results = format_output(o, p, m, R_info, network, ppl, yaml, seed)
   
   return(results)
 }
@@ -724,7 +717,10 @@ update_output = function(m, p, date_idx, update_metric, to_count) {
 # ---------------------------------------------------------
 # Prepare final model output
 # ---------------------------------------------------------
-format_output = function(o, p, m, network, ppl, yaml, seed) {
+format_output = function(o, p, m, R_info, network, ppl, yaml, seed) {
+  
+  # Store effective reproduction number (calculated in postprocess.R)
+  m[metric == "R_effective", value := R_info$R_eff$value]
   
   # Insert seasonality profile - this is actually input, not output, but is helpful for visualisation
   m[metric == "seasonality", value := p$seasonality[1 : p$n_days]]
@@ -734,9 +730,6 @@ format_output = function(o, p, m, network, ppl, yaml, seed) {
   
   # Convert number of cases per variant to variant prevalence
   m[metric == "variant_prevalence", value := 100 * value / max(sum(value), 1), by = "date"]
-  
-  # Trivialise first R_eff values - can only be calculated after infectious_period days
-  m[metric == "R_effective" & date <= p$infectious_period, value := NA]
   
   # Append scenario and seed columns to output datatable
   m$scenario = p$.id
@@ -751,6 +744,7 @@ format_output = function(o, p, m, network, ppl, yaml, seed) {
   results = list(yaml    = yaml$raw, 
                  input   = yaml$parsed, 
                  network = network,
+                 R_info  = R_info, 
                  output  = m)
   
   return(results)
@@ -1194,35 +1188,47 @@ fn_vaccinate = function(p, ppl, n_vaccine_group, date_idx) {
     }
   }
   
-  # ---- Set next booster dose ----
-  
-  # NOTE: Booster cycle initiates on day of vaccination UNLESS using force_start, in which case
-  #       the first booster is given on day force_start and the cycle continues from that point. 
-  
-  # Set date of first booster dose (for those just vaccinated initial vaccination)
-  booster_1_df = ppl[days_vaccinated == 0 & booster_accept == TRUE] %>% 
-    select(id, vaccine_group, days_vaccinated, days_booster, booster_due) %>% 
-    left_join(p$vaccine$booster_groups[, -"probability"], by = "vaccine_group") %>%
-    mutate(booster_due = pmin(pmax(cycle_period + date_idx, start), force_start, na.rm = TRUE))
-  
-  # Set date of subsequent booster dose (for those who have just recieved a booster)
-  booster_n_df = ppl[booster_due == date_idx] %>% 
-    select(id, vaccine_group, days_vaccinated, days_booster, booster_due) %>% 
-    left_join(p$vaccine$booster_groups[, -"probability"], by = "vaccine_group") %>%
-    mutate(booster_due = cycle_period + date_idx)
-  
   # ---- Apply booster dose ----
   
-  # If due a booster, initiate days since most recent booster received
-  ppl[booster_due == date_idx, days_booster := 0]
+  # IDs of those to receive a booster today (limited to booster_doses per day)
+  booster_id = ppl[booster_due <= date_idx] %>%
+    left_join(n_vaccine_group, 
+              by = "vaccine_group") %>%
+    select(id, booster_due, priority) %>%
+    arrange(booster_due, priority) %>%
+    slice_head(n = p$booster_doses) %>%
+    pull(id)
+  
+  # For all receiving a booster, initiate days since most recent dose received
+  ppl[booster_id, days_booster := 0]
+  
+  # ---- Due date of next booster dose ----
+  
+  # NOTE: Booster cycle initiates on day of final dose UNLESS using force_start, in which
+  #       case first booster given on day force_start. Cycle then continues from that point. 
+  
+  # Day of final dose of initial vaccine schedule
+  final_dose = max(p$vaccine$subsequent_dose_days)
+  
+  # Set date of first booster dose (for those recieving final dose of initial schedule today)
+  booster_1_df = ppl[days_vaccinated == final_dose & 
+                       booster_accept == TRUE] %>% 
+    select(id, vaccine_group, days_vaccinated, days_booster, booster_due) %>% 
+    left_join(p$vaccine$booster_groups[, -"probability"], 
+              by = "vaccine_group") %>%
+    mutate(booster_due = pmin(pmax(cycle_period + date_idx, start), 
+                              force_start, na.rm = TRUE))
+  
+  # Set date of subsequent booster dose (for those receiving a booster today)
+  booster_n_df = ppl[id %in% booster_id] %>% 
+    select(id, vaccine_group, days_vaccinated, days_booster, booster_due) %>% 
+    left_join(p$vaccine$booster_groups[, -"probability"], 
+              by = "vaccine_group") %>%
+    mutate(booster_due = booster_due + cycle_period)
   
   # Apply next booster due date calculated above
   ppl[id %in% booster_1_df$id, booster_due := booster_1_df$booster_due]
   ppl[id %in% booster_n_df$id, booster_due := booster_n_df$booster_due]
-  
-  # Sanity check that no-one has been missed
-  if (any(ppl$booster_due <= date_idx, na.rm = TRUE))
-    stop("Booster doses have been missed - investigation needed")
   
   return(ppl)
 }

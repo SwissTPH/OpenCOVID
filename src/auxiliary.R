@@ -7,6 +7,25 @@
 ###########################################################
 
 # ---------------------------------------------------------
+# Set as datatable and rename columns in one line
+# ---------------------------------------------------------
+as_named_dt = function(x, new_names) {
+  
+  # Convert to datatable
+  dt = as.data.table(x)
+  
+  # Check new names are correct length
+  old_names = names(dt)
+  if (length(old_names) != length(new_names))
+    stop("Inconsistent number of column names provided")
+  
+  # Set new column names
+  named_dt = setnames(dt, old_names, new_names)
+  
+  return(named_dt)
+}
+
+# ---------------------------------------------------------
 # Check if user is currently running any cluster jobs
 # ---------------------------------------------------------
 check_cluster_jobs = function(o, action = "error") {
@@ -127,7 +146,6 @@ list2dt = function(x, ...) {
   dt = rbindlist(lapply(x, as.data.table), ...)
   return(dt)
 }
-  
 
 # ---------------------------------------------------------
 # Logistic curve
@@ -177,6 +195,45 @@ n_slurm_jobs = function(user) {
   n_jobs = list(running = n_running, pending = n_pending)
   
   return(n_jobs)
+}
+
+# ---------------------------------------------------------
+# Normalise a vector of values to between 0 and 1
+# ---------------------------------------------------------
+normalise_0to1 = function(x, x_min = NULL, x_max = NULL, direction = "forward") {
+  
+  if (!tolower(direction) %in% c("forward", "backward"))
+    stop("Normalisation direction must be either 'forward' or 'backward'")
+  
+  # Forward normalisation
+  if (tolower(direction) == "forward") {
+    
+    # Take bounds from data unless given
+    if (is.null(x_min)) x_min = min(x)
+    if (is.null(x_max)) x_max = max(x)
+      
+    # Normalisation equation
+    y = (x - x_min) / (x_max - x_min)
+    
+    # Append original min and max values, needed to backtransform
+    attributes(y)$x_min = x_min
+    attributes(y)$x_max = x_max
+  }
+  
+  # Backward normalisation
+  if (tolower(direction) == "backward") {
+    
+    # Take bounds from attitubutes of pre-normalised data unless given
+    if (is.null(x_min)) x_min = attributes(x)$x_min
+    if (is.null(x_max)) x_max = attributes(x)$x_max
+    
+    # Rearrange equation to solve for x
+    #
+    # NOTE: as.vector removes all attributes
+    y = as.vector(x * (x_max - x_min) + x_min)
+  }
+  
+  return(y)
 }
 
 # ---------------------------------------------------------
@@ -314,41 +371,47 @@ thou_sep = function(val) {
 # ---------------------------------------------------------
 try_load = function(pth, file, msg = NULL, type = "rds", throw_error = TRUE, sep = FALSE) {
   
+  # Initiate trivial output
+  file_contents = NULL
+  
   # Set default error message
   if (is.null(msg))
-    msg = "Cannot find file"
+    msg = "Cannot load file"
   
   # Switch case for loading function
-  loading_fnc = switch(tolower(type), 
-                       
-                       # Support both RDS and CSV
-                       "rds" = "readRDS", 
-                       "csv" = "read.csv",
-                       
-                       # Throw an error if anything else requested
-                       stop("File type '", type, "' not supported")
+  loading_fnc = switch(
+    tolower(type), 
+    
+    # Support both RDS and CSV
+    "rds" = "readRDS", 
+    "csv" = "read.csv",
+    
+    # Throw an error if anything else requested
+    stop("File type '", type, "' not supported")
   )
   
   # Concatenate path and file name
   file_name = paste0(pth, ifelse(sep, file_sep(), ""), file, ".", type)
   
-  # Check whether file exists
+  # If file doesn't exist, throw an error if desired
+  if (!file.exists(file_name) && throw_error == TRUE)
+    stop(msg, " [missing: ", file_name, "]")
+  
+  # If file exists, try to load it
   if (file.exists(file_name)) {
     
-    # TODO: Wrap this in a try-catch block
-    
-    # Get the loading function and load the file
-    file_contents = get(loading_fnc)(file_name)
-    
-  } else {  # File doesn't exist, action needed
-    
-    # Either throw a descriptive error
-    if (throw_error == TRUE) {
-      stop(msg, " [missing file: ", file_name, "]")
+    # Get the loading function and attempt to load file
+    file_contents = tryCatch(
+      get(loading_fnc)(file_name),
       
-    } else { # ... or provide a trivial value back
-      file_contents = NULL
-    }
+      # Catch the error - we may not want to throw it
+      error = function(e) {
+        
+        # Throw descriptive error if desired
+        if (throw_error) 
+          stop(msg, " [unreadable: ", file_name, "]")
+      }
+    )
   }
   
   return(file_contents)

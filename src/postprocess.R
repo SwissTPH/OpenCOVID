@@ -8,6 +8,55 @@
 # ---------------------------------------------------------
 # Format model outcomes ready for plotting
 # ---------------------------------------------------------
+calculate_Reff = function(incidence, si, r_eff_window) {
+  
+  # See: https://cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
+  
+  # Number of daily observations
+  n_days = length(incidence$local)
+
+  # Use r_eff_window here for non-default time window
+  r_win  = r_eff_window - 1
+  r_days = seq(2, n_days - r_win) # Starting at 2 as conditional on the past observations
+
+  # Check if serial interval has already been summarised
+  if (is.list(si)) si_dist = si[c("mean", "std")]
+  
+  # If still a vector, calculate normal distribution parameters
+  if (is.numeric(si)) si_dist = list(mean = mean(si), std = sd(si))
+  
+  # We'll use the mean and standard deviation of this data
+  si_list = list(mean_si = si_dist$mean, 
+                 std_si  = si_dist$std, 
+                 t_start = r_days,
+                 t_end   = r_days + r_win)
+  
+  # Use estimate_R function from EpiEstim package
+  R_eff_df = estimate_R(incid  = incidence$local, 
+                        method = "parametric_si",
+                        config = make_config(si_list))
+  
+  # Extract R_eff estimate along with 95% CI bounds
+  R_eff = R_eff_df$R %>%
+    select(date  = t_start,
+           value = "Mean(R)", 
+           lower = "Quantile.0.025(R)", 
+           upper = "Quantile.0.975(R)") %>%
+    filter(date >= r_eff_window) %>%
+    right_join(data.frame(date = 1 : n_days), 
+               by = "date") %>%
+    arrange(date) %>%
+    mutate(incidence = incidence$local)
+  
+  # Append serial distribution 
+  R_info = list(R_eff = R_eff, si = si_dist)
+  
+  return(R_info)
+}
+
+# ---------------------------------------------------------
+# Format model outcomes ready for plotting
+# ---------------------------------------------------------
 format_results = function(o, f, results) {
   
   # Check if we're plotting a single simulation
@@ -34,7 +83,7 @@ format_results = function(o, f, results) {
   # ---- Scale metrics per n person days ----
   
   # Scaler required (based on number simulated)
-  scaler = results$input$population_size / f$person_days
+  scaler = f$person_days / results$input$population_size
   
   # Vector of metrics to be scaled
   scale_metrics = results$input$metrics$df %>%

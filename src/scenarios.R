@@ -113,6 +113,10 @@ check_fit = function(o) {
   err_msg = "Cannot find a fitting file for this analysis - have you run step 1?"
   fit_result = try_load(o$pth$fitting, "fit_result", msg = err_msg)
   
+  # For quick results, user can choose to skip this check
+  if (o$check_fit_consistency == FALSE)
+    return()
+  
   # Load current baseline - we need to check input hasn't changed
   baseline = parse_yaml(o, scenario = "baseline")
   

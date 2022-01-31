@@ -40,16 +40,37 @@ set_options = function(do_step = NA, quiet = FALSE) {
   
   # ---- Calibration settings ----
   
+  # Whether fitting should be reproducible
+  o$fit_reproducible = TRUE
+  
   # Take R_eff as the mean across these days
-  o$fit_days = 2 : 4
+  #
+  # NOTE: R_eff is calculated over a 7-day rolling window
+  o$fit_days = 7 : 10
+  
+  # Number of samples and seeds for training model emulator
+  o$emulator_samples = 400
+  o$emulator_seeds = 20
+  
+  # Accept up to x% of samples failing
+  o$sample_err_tol = 0.05  # 1-5% is reasonable
+  
+  # Test-train split of samples for training model emulator
+  o$test_train_split = 0.15  # 15-20% is reasonable
+  
+  # Select GP kernel function
+  o$gp_kernel = "Matern5_2" # "Gaussian", "Matern5_2", or "Matern3_2"
+  
+  # Maximum number of iterations of GP algorithm
+  o$gp_max_iter = 1000
+  
+  # Number of times to perform optimisation
+  o$optim_runs = 20
   
   # Number of ASD iterations
-  o$fit_iters_max = 50
+  o$fit_iters_max = 100
   
-  # Number of ASD iterations between progress plots
-  o$fit_iters_plot = 5
-  
-  # Selection of model parameters that can be changed with the need for re-fitting
+  # Selection of model parameters that can be changed without the need for re-fitting
   o$fit_changeable_items = c("n_days", 
                              "model_metrics",
                              "contacts_scaler",
@@ -58,6 +79,9 @@ set_options = function(do_step = NA, quiet = FALSE) {
                              "diagnosis_delay",
                              "testing", 
                              "isolation")
+  
+  # Check calibration file consistency before simulating scenarios
+  o$check_fit_consistency = TRUE
   
   # ---- Uncertainty settings ----
   
@@ -168,7 +192,6 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$plot_assumptions = TRUE  # Model structure and assumptions figures
   
   # Flags for custom figures
-  o$plot_manuscript  = TRUE  # Plot figures for Omicron manuscript (December 2021)
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)
   
   # ---- Advanced functionality ----

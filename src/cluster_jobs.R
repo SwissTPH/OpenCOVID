@@ -10,6 +10,55 @@
 # ---------------------------------------------------------
 run_cluster_job = function(o, job_type, task_id) {
   
+  # ---- Run fitting samples -----
+  
+  # Run fitting samples used to train model emulator
+  if (grepl("fitting", job_type)) {
+    
+    # Load full factorial set of cantons, seeds, and simulation names
+    sim_df = readRDS(paste0(o$pth$fit_samples, "all_samples.rds"))
+    
+    # Select sims associated with this param ID
+    param_df = filter(sim_df, param_id == task_id)
+    
+    # Preallocate output dataframe
+    output_df = param_df %>%
+      select(param_id, seed) %>%
+      mutate(r_eff = NA)
+    
+    # Parameter values in list format (for input into model)
+    param_list = param_df %>%
+      select(-param_id, -seed) %>%
+      unique() %>%
+      as.list()
+    
+    # Append number of days to simulate for (not many needed for fitting Reff)
+    fit_list = list.append(param_list, n_days = max(o$fit_days))
+    
+    # Loop through seeds
+    for (seed in param_df$seed) {
+      
+      message("  > Seed ", seed, " of ", o$emulator_seeds)
+      
+      # TODO: Put model inside trycatch - it's ok if we get occasional error
+      
+      # Simulate model
+      result = model(o, "baseline", 
+                     seed = seed, 
+                     fit  = fit_list, 
+                     verbose = "none")
+      
+      # Extract mean R_eff over time points of interest
+      r_eff_df = filter(result$output, date %in% o$fit_days)
+      
+      # Store in output dataframe
+      output_df$r_eff[seed] = mean(r_eff_df$value)
+    }
+    
+    # Save sample outputs as an RDS file
+    saveRDS(output_df, paste0(o$pth$fit_samples, "sample_", task_id, ".rds"))
+  }
+  
   # ---- Run simulations -----
   
   # Run all user-defined scenarios

@@ -39,6 +39,11 @@ seasonality_shift: 90
 # Effective reproduction number at analysis start
 r_eff: 1.1  # Calibrated in step 1
 
+# Time window (in days) for calculating R_eff
+#
+# See: cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
+r_eff_window: 7
+
 # Transmission probability for maximum infecitivty, susceptibility, and seasonality
 beta: 0.05
 
@@ -47,13 +52,15 @@ import_constant: 1.5  # per 100k people
 
 # ---- Viral variants ----
 
-# Primary variant
+# Primary variant (properties relative to prognosis probabilities)
 variant_primary:
   id: delta
   name: "Delta (B.1.617.2)"
+  infectivity: 1
+  severity: 1
   immuno_escape: 0.0
 
-# Novel variant properties
+# Novel variant properties (properties relative to primary variant)
 variants_novel: 
 - id: novel_variant
   name: "Novel variant template"
@@ -106,14 +113,15 @@ vaccine_rollout:
   max_start: 0
   max_end: 120
   
-  # Vaccine booster rollout (only groups to recieve a booster need to be specified)
+# Vaccine booster rollout (only groups to recieve a booster need to be specified)
+booster_doses: 1000  # Maximum number of doses per day (per 100,000 people)
 booster_rollout:
 - id: high_priority
   probability: 0.0   # Probability of accepting/receiving a booster dose
   cycle_period: 365  # Booster dose administered every cycle_period days
   start: 0           # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
   force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
-
+  
 # Vaccine of choice
 vaccine_type: "pfizer"  # Properties of 'named' vaccines are pre-defined
 
@@ -132,7 +140,7 @@ vaccine_custom:
   
 # ---- Other interventions ----
 
-# Futrure non-pharmaceutical intervention effect
+# Future non-pharmaceutical intervention effect
 npi_scaler: 0  # Set to 0 to turn off NPI effect
 npi_effect: 0
 
@@ -424,7 +432,7 @@ model_metrics:
   variant_prevalence:
     report: yes
   R_effective:
-    report: no
+    report: yes
   seroprevalence:
     report: yes
   pop_susceptibility:
@@ -498,6 +506,6 @@ vaccine_defintion:
 # Define parameters to be calibrated
 calibration:
 - param: "contacts"
-  lower: 0
-  upper: Inf
+  lower: 1
+  upper: 20
   

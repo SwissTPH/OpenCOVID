@@ -41,7 +41,6 @@ source("cluster_jobs.R")
 source("postprocess.R")
 source("results.R")
 source("plotting.R")
-source("manuscript.R")
 source("unit_tests.R")
 
 # Also load my_results if it exists
@@ -63,8 +62,9 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "matrixStats",    # Matrix row and column operations
              "tidygraph",      # Network functionality
              "ggraph",         # Network functionality
-             "socialmixr",     # Age structured contact matrixes from POLYMOD
              "widyr",          # Compile network properties
+             "socialmixr",     # Age structured contact matrixes from POLYMOD
+             "EpiEstim",       # R_effective calculated from incidence and serial interval
              "wrswoR",         # Fast weighted integer sampling without replacement
              "data.table",     # Next generation dataframes
              "useful",         # General helper functions (eg compare.list)

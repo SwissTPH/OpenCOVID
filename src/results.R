@@ -84,11 +84,11 @@ run_results = function(o) {
       plot_temporal(o, fig_name, scenarios = single_scenarios, cumulative = TRUE)
     }
 
-    # Viral variants area plot - one for each alternative scenario
-    for (alt_scenario in single_scenarios) {
-      fig_name = c("Alternative scenarios", "Variants", alt_scenario)
-      plot_temporal(o, fig_name, alt_baseline = alt_scenario, plot_by = "variant", plot_geom = "area")
-    }
+    # # Viral variants area plot - one for each alternative scenario
+    # for (alt_scenario in single_scenarios) {
+    #   fig_name = c("Alternative scenarios", "Variants", alt_scenario)
+    #   plot_temporal(o, fig_name, alt_baseline = alt_scenario, plot_by = "variant", plot_geom = "area")
+    # }
   }
 
   # ---- Array scenario bundles ----
@@ -121,11 +121,11 @@ run_results = function(o) {
           plot_temporal(o, fig_name, scenarios = array_children, cumulative = TRUE)
         }
 
-        # Plot variants
-        for (array_child in array_children) {
-          fig_name = c("Array child", "Variants", array_child)
-          plot_temporal(o, fig_name, alt_baseline = array_child, plot_by = "variant", plot_geom = "area")
-        }
+        # # Plot variants
+        # for (array_child in array_children) {
+        #   fig_name = c("Array child", "Variants", array_child)
+        #   plot_temporal(o, fig_name, alt_baseline = array_child, plot_by = "variant", plot_geom = "area")
+        # }
       }
     }
   }
@@ -193,10 +193,6 @@ run_results = function(o) {
   }
 
   # ---- Custom figures ----
-  
-  # Plot Omicron manuscript figures (December 2021)
-  if (o$plot_manuscript == TRUE)
-    manuscript_figures(o)
   
   # Also plot custom results defined within my_results.R (if it exists)
   if (o$plot_custom == TRUE && file.exists("my_results.R"))

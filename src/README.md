@@ -1,13 +1,8 @@
----
-output:
-  html_document: default
-  word_document: default
----
 # OpenCOVID
 
 An individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynamics developed at Swiss TPH. A stochastic, discrete-time model with age, risk-group, network, and viral variant structure. From version 2.0 onwards, the model is setting-agnostic.
 
-##### Version 2.0 (stable with R versions 3.6-4.1)
+##### Version 2.1 (stable with R versions 3.6-4.1)
 
 ## The repository
 
@@ -50,8 +45,14 @@ Note that it is generally not necessary to preserve ordering in analysis files.
 
 ### Generate a model calibration
 - Set `do_step = 1` in `launch.R` and 'source' to calibrate the model
-- Step 1 determines the average number of daily contacts required to achieve a pre-defined effective reproduction number at the start of the simulation period
-- This is achieved using a stochastic decent algorithm that evalutes the effective reproduction number over the first few time steps of the model
+- By default, step 1 determines the average number of daily contacts required to achieve a pre-defined effective reproduction number at the start of the simulation period (*R$\tau$*)
+  - In future releases, this approach will be expanded so any number of user-defined parameters can be calibrated to either a user-defined *R$\tau$* or setting-specific epidemiological data
+- This calibration process is as follows: 
+  i. A number of paramater sets are sampled from the input parameter space using Latin Hypercube sampling
+  ii. These parameters sets are simulated (multiple times) for a short period, and *R$\tau$* is calculated
+  iii. A surrogate model emulator is trained to learn the relationship between inputs and *R$\tau$* 
+  iv. The optimal parameter set to achieve the user-defined *R$\tau$* is calculated through a stochastic decent algorithm (performed multiple times)
+- The optimal parameter set determined from this process is then used in step 2 when simulating scenarios
 
 ### Run scenarios
 - Set `do_step = 2` in `launch.R` and 'source' to simulate the baseline and any user-defined alternative scenarios
@@ -71,7 +72,7 @@ Note that it is generally not necessary to preserve ordering in analysis files.
 
 ## Release details
 
-#### V2.0 release date: 10-12-2021
+#### V2.1 release date: 31-01-2022
 
 #### Development and maintenance:
 * Andrew J. Shattock (andrewjames.shattock@swisstph.ch)

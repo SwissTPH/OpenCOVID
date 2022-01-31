@@ -20,7 +20,7 @@ run_model_test = function(o, scenario = "baseline") {
   
   # Run model for the defined scenario (see model.R)
   result = model(o, scenario, seed = 1, do_plot = FALSE, verbose = "bar")
-
+  
   # Save result as an RDS file
   saveRDS(result, paste0(o$pth$testing, "model_test.rds"))
   

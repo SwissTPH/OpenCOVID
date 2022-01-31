@@ -62,7 +62,8 @@ set_dirs = function(o, force_analysis_name = NULL) {
   out$testing = file.path(pth_output, "0_testing")
   
   # Path to calibration files
-  out$fitting = file.path(pth_output, "1_calibration", o$analysis_name)
+  out$fitting     = file.path(pth_output, "1_calibration", o$analysis_name)
+  out$fit_samples = file.path(out$fitting, "fit_samples")
   
   # Paths to scenario files
   out$scenarios   = file.path(pth_output, "2_scenarios", o$analysis_name)

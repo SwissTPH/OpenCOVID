@@ -16,6 +16,10 @@ create_network = function(o, p, ppl, do_plot, verbose) {
   if (verbose != "none")
     message("  > Creating contact network: ", p$network_structure)
   
+  # Do not allow extremely low number of contacts - will likely lead to issues
+  if (p$contacts < 1e-6)
+    stop("Average number of daily contacts is unfeasibly low")
+  
   # ---- Network layers that can be combined ----
   
   # Create layered network

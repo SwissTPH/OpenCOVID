@@ -16,7 +16,7 @@ if (length(args) > 0) {
   job_id   = as.numeric(args[2])
   
 } else {  # Otherwise define some defaults - used for testing and debugging
-  job_type = "scenarios"
+  job_type = "fitting" # fitting, scenarios, summarise
   job_id   = 1
 }
 
@@ -32,6 +32,8 @@ tryCatch(
     
     # Concatenate (ideally useful) error message
     err_message = paste0(" ! ", e$message, " (array ID: ", job_id, ")")
+    
+    message(err_message)
     
     # Append this error message to an error log file
     write(err_message, file = paste0(o$pth$log, o$err_file), append = TRUE)

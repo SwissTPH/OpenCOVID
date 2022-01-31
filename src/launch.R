@@ -5,8 +5,8 @@
 # model of SARS-CoV-2 transmission and COVID-19 disease.
 #
 # Usage:
-#  Interactively via Rstudio: 'source' this file (without echo)
-#  From shell command line: sh bash_launch.sh
+#  Via Rstudio: Open opencovid.Rproj and 'source' this file (without echo)
+#  Via shell command line: sh bash_launch.sh
 #
 # The OpenCOVID model is maintained by members of the Disease
 # Modelling Unit at Swiss TPH.
@@ -16,16 +16,13 @@
 # Clear global environment
 rm(list = ls())
 
-# Set working directory to sourced file
-if (interactive()) setwd(getSrcDirectory(function() {}))
-
 source("dependencies.R")
 
 # Tidy up
 if (interactive()) clf()  # Close figures
 if (interactive()) clc()  # Clear console
 
-message("Running OpenCOVID v2.0")
+message("Running OpenCOVID v2.1")
 
 # Set options (see options.R)
 o = set_options(do_step = 0)

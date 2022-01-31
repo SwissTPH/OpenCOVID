@@ -211,11 +211,8 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   
   # ---- Disease state durations ----
   
-  # Define max possible viral shedding days to be period of infectiousness for average severe case
+  # Store max viral shedding days: period of infectiousness for average severe case
   n_shed_days = y$durations$presymptomatic$mean + y$durations$infectious_severe$mean
-  
-  # Most common infectious period - used to calculate effective reproduction number
-  y$infectious_period = y$durations$presymptomatic$mean + y$durations$infectious_mild$mean
   
   # Initiate list to store parsed functions
   durations_fn = list()
@@ -309,15 +306,21 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   
   # ---- Viral variants ----
   
-  # Append trivial default values to primary variant - infectivity & severity always relevant to this
-  variant_primary = append(y$variant_primary, list(import_day = 0, infectivity = 1, severity = 1))
+  # Initiate primary variant - infectivity & severity always relevant to this
+  variant_primary = list.append(y$variant_primary, import_day = 0)
   
-  # Convert lists into single dataframe
-  y$variants = list2dt(y$variants_novel) %>%
-    filter(import_number > 0) %>%
-    mutate(import_number = ceiling(import_number / 1e5 * y$population_size)) %>%
-    bind_rows(variant_primary) %>%
+  # Scale infectivity & severity of novel variants given primary variant properties
+  variants_novel = list2dt(y$variants_novel) %>%
+    filter(import_number > 0) %>% 
+    mutate(import_number = ceiling(import_number / 1e5 * y$population_size), 
+           infectivity   = infectivity * variant_primary$infectivity, 
+           severity      = severity    * variant_primary$severity) %>%
     arrange(import_day)
+  
+  # Concatenate variants
+  #
+  # NOTE: Novel variants may be trivial for a subset of scenarios within an analysis
+  y$variants = as.data.table(bind_rows(variant_primary, variants_novel))
   
   # Remove redundant items
   y[c("variant_primary", "variants_novel")] = NULL
@@ -439,6 +442,9 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
     rename(vaccine_group = id) %>%
     mutate(probability = pmin(pmax(probability, 0, na.rm = TRUE), 1), 
            start       = pmin(start, force_start, na.rm = TRUE))
+  
+  # Scale boosters per day for this population size
+  y$booster_doses = (y$booster_doses / 1e5) * y$population_size
   
   # Day last vaccination given for each group
   group_end = v$groups[, ifelse(max_end > 0, max_end, init_end)]
@@ -935,7 +941,7 @@ parse_arrays = function(o, y, scenario) {
       
       # Evaluate the string to obtain a list of inputs to R's seq function
       array_eval = eval(parse(text = array_str))
-      
+
       # Remove the ID and name items, and set the function name to seq
       array_fn = c(fn = "seq", list.remove(array_eval, c("id", "name")))
       
@@ -987,9 +993,17 @@ parse_arrays = function(o, y, scenario) {
       
       # Loop through the values
       for (val_name in names(val_df)) {
+        this_val = val_df[[val_name]]
+        
+        # Class of parameter in baseline - could be numeric or integer
+        param_class = class(eval(parse(text = paste0("y$", val_name))))
+        
+        # If integer, ensure consistent class
+        if (param_class == "integer")
+          this_val = paste0("as.integer(", this_val, ")")
         
         # String to be evaluated to set the individual value
-        val_str = paste0("scen_details$", val_name, " = ", val_df[[val_name]])
+        val_str = paste0("scen_details$", val_name, " = ", this_val)
         
         # Evaluate the string to set the value
         eval(parse(text = val_str))
@@ -1167,7 +1181,7 @@ get_array_children = function(scenarios, parents) {
   for (parent in parents) {
     
     # Expression to match to identify children
-    parent_exp = paste0("^", parent, "\\.*")
+    parent_exp = paste0("^", parent, "\\..*")
     
     # Indices of such scenarios
     children_idx = grepl(parent_exp, scenarios)
