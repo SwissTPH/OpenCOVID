@@ -34,7 +34,7 @@ format_results = function(o, f, results) {
   # ---- Scale metrics per n person days ----
   
   # Scaler required (based on number simulated)
-  scaler = results$input$population_size / f$person_days
+  scaler = f$person_days / results$input$population_size
   
   # Vector of metrics to be scaled
   scale_metrics = results$input$metrics$df %>%

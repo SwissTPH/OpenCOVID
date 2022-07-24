@@ -28,7 +28,7 @@ if (interactive()) clc()  # Clear console
 message("Running OpenCOVID v2.0")
 
 # Set options (see options.R)
-o = set_options(do_step = 0)
+o = set_options(do_step = 1 : 3)
 
 # Step 0) Test run a single simulation
 run_model_test(o)  # See unit_tests.R
@@ -41,6 +41,9 @@ run_scenarios(o)  # See scenarios.R
 
 # Step 3) Plot results
 run_results(o)  # See results.R
+
+# Step 4) Plot media image
+run_media_image(o)  # See media_image.R
 
 # Finish up
 message("* Finished!")

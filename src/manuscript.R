@@ -3,6 +3,7 @@
 #
 # Results for Omicron manuscript (December 2021).
 #
+# Written by A.J.Shattock (andrewjames.shattock@swisstph.ch)
 ###########################################################
 
 # ---------------------------------------------------------
@@ -14,7 +15,7 @@ manuscript_figures = function(o) {
   
   # These results are for 'omicron' analysis
   if (o$analysis_name != "omicron")
-    stop("\nTo produce these results, you must run steps 1-3 for 'omicron' analysis.", 
+    stop("\nTo produce these results, you must run steps 1-2 for 'omicron' analysis.", 
          "\nNote that step 2 will require connection to a cluster")
   
   # ---- Plotting flags ----
@@ -23,7 +24,7 @@ manuscript_figures = function(o) {
   do_temporal      = TRUE  # Temporal plots
   do_n_doses       = TRUE  # Number of doses
   do_heat_variant  = TRUE  # Heat maps of Omicron prevalence
-  do_heat_icu      = TRUE  # Heat maps for peak cases in ICU
+  do_heat_hosp     = TRUE  # Heat maps for peak cases in hospital
   do_heat_metrics  = TRUE  # Heat maps of cases & deaths
   do_heat_compare  = TRUE  # Heat maps comparing these metrics
   
@@ -59,8 +60,8 @@ manuscript_figures = function(o) {
   # Facet indices for Delta/Omicron dominance text                   
   facet_text = c(5, 2) # (row, column)
   
-  # Define colourbar bins for ICU peak
-  icu_bins   = seq(0, 30, by = 5)
+  # Define colourbar bins for hospital peak
+  hosp_bins  = seq(0, 350, by = 60)
   avert_bins = seq(0, 0.6, by = 0.1)
   
   # Number of points (across each axis) for interpolation of heatmap 
@@ -97,6 +98,15 @@ manuscript_figures = function(o) {
     
     message("  > Temporal plots")
     
+    # Variant prevalence over time
+    plot_temporal(o, "Delta dynamics", 
+                  plot_baseline = FALSE,
+                  scenarios     = paste0(a$id, s0$base), 
+                  plot_metrics  = c("all_new_infections", "hospital_beds", "deaths", 
+                                    "seasonality", "pop_susceptibility"), 
+                  plot_from     = plot_from, 
+                  date_from     = date_from)
+    
     # Loop through arrays
     for (i in 1 : n_arrays) {
       
@@ -104,13 +114,10 @@ manuscript_figures = function(o) {
       s1[] = paste0(a$id[i], s0)
       
       # Variant prevalence over time
-      plot_temporal(o, "Delta dynamics", alt_baseline = s1$base)
-      
-      # Variant prevalence over time
       plot_temporal(o, c("Temporal", a$name[i]), 
                     plot_baseline = FALSE, 
                     scenarios     = c(s1$base, s1$inf1, s1$inf2, s1$esc, s1$sev1, s1$sev2, s1$high),
-                    plot_metrics  = c("all_new_infections", "icu_beds", "variant_prevalence"),
+                    plot_metrics  = c("all_new_infections", "hospital_beds", "variant_prevalence"),
                     plot_by       = "variant", 
                     plot_geom     = "area",
                     plot_from     = plot_from, 
@@ -242,12 +249,12 @@ manuscript_figures = function(o) {
     add_subplot_labels(plot_info$g, plot_info$plot_df, fig_name)
   }
   
-  # ---- Heat maps: peak of ICU cases ----
+  # ---- Heat maps: peak of hospital cases ----
   
   # Check plotting flag
-  if (do_heat_icu == TRUE) {
+  if (do_heat_hosp == TRUE) {
     
-    message("  > Plotting ICU peak")
+    message("  > Plotting hospital peak")
     
     # Initiate list to store variant prevalence contour info
     plot_list = list()
@@ -256,19 +263,19 @@ manuscript_figures = function(o) {
     for (i in 1 : n_arrays) {
       
       # Define figure name
-      fig_name = c("Heatmap", "ICU beds", a$name[i])
+      fig_name = c("Heatmap", "Hospitalisations", a$name[i])
       fig_pth  = heatmap_id(o, fig_name)
       
       # Create new plotting dataframe only if needed
       if (!file.exists(fig_pth) || force_replot) {
         
-        # Heat map of moving parts: max ICU beds
+        # Heat map of moving parts: max hospital beds
         plot_heatmap(o, fig_name, a$id[i],
-                     plot_metrics   = "icu_beds",
+                     plot_metrics   = c("hospital_beds", "icu_beds"),
                      summarise      = "max",
                      plot_from      = plot_from,
                      plot_to        = plot_to,
-                     colour_limits  = c(min(icu_bins), max(icu_bins)), 
+                     colour_limits  = c(min(hosp_bins), max(hosp_bins)), 
                      n_interpolate  = heatmap_interpolate2,
                      w_percent      = FALSE,
                      v_percent      = TRUE)
@@ -289,26 +296,26 @@ manuscript_figures = function(o) {
              v = factor(v, levels = rev(analysis_names)))
     
     # Construct suitable colour bar labels
-    icu_labels    = rev(icu_bins)[-1]
-    icu_labels[1] = paste0(">", icu_labels[1])
+    hosp_labels    = rev(hosp_labels)[-1]
+    hosp_labels[1] = paste0(">", hosp_labels[1])
     
     # No label for max value
-    icu_labels = c(rev(icu_labels), "")
-        
+    hosp_labels = c(rev(hosp_labels), "")
+    
     # Plot manuscript figure
     plot_info =
       plot_heatmap(o, fig_name, NULL,
                    plot_df        = plot_df,
-                   plot_metrics   = "icu_beds",
+                   plot_metrics   = c("hospital_beds", "icu_beds"), 
                    colour_palette = "-Greys", 
-                   colour_limits  = c(min(icu_bins), max(icu_bins)),
-                   colour_bins    = icu_bins, 
+                   colour_limits  = c(min(hosp_bins), max(hosp_bins)),
+                   colour_bins    = hosp_bins, 
                    x_lab          = "Infectivity", 
                    y_lab          = "Immune evading", 
                    x_scale_fn     = label_number(accuracy = 0.1),
                    y_scale_fn     = percent,
-                   z_labels       = icu_labels, 
-                   plot_title     = "Peak COVID-19-related ICU occupancy (per 100,000 people)", 
+                   z_labels       = hosp_labels, 
+                   plot_title     = "Peak hospitalisation occupancy (per 100,000 people)", 
                    n_wrap         = heatmap_wrap,
                    override_fontsize = heatmap_fontsize)
     
@@ -531,7 +538,7 @@ manuscript_figures = function(o) {
     plot_df = rbindlist(plot_list) %>%
       mutate(w = factor(w, levels = rev(levels(w))), 
              v = factor(v, levels = avert_names))
-             
+    
     # Construct suitable colour bar labels
     avert_labels    = paste0(rev(avert_bins)[-1] * 100, "%")
     avert_labels[1] = paste0(">", avert_labels[1])
@@ -555,7 +562,7 @@ manuscript_figures = function(o) {
                    n_wrap         = 50,
                    plot_title     = "Infections and deaths averted by expanded vaccination", 
                    override_fontsize = heatmap_fontsize)
-                   
+    
     # Create label dataframe - letter for each facet
     text_df = expand_grid(x = c(0.5, 1.5), y = 0.25, 
                           w = levels(plot_df$w)[facet_text[1]], 

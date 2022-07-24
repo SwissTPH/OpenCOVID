@@ -42,6 +42,7 @@ source("postprocess.R")
 source("results.R")
 source("plotting.R")
 source("manuscript.R")
+source("media_image.R")
 source("unit_tests.R")
 
 # Also load my_results if it exists

@@ -28,7 +28,7 @@ run_cluster_job = function(o, job_type, task_id) {
     result = model(o, this_sim$scenario, 
                    seed = this_sim$seed, 
                    fit  = fit_result$fit_output,
-                   verbose = "date") 
+                   verbose = "date")
     
     # Save model inputs and outputs as an RDS file
     saveRDS(result, paste0(o$pth$simulations, this_sim$sim_id, ".rds"))

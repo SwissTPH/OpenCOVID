@@ -149,7 +149,8 @@ model_metrics:
     report: yes
     by: variant
   hospital_beds:
-    report: no
+    report: yes
+    by: variant
   hospital_admissions:
     report: no
   icu_beds:
@@ -179,7 +180,7 @@ model_metrics:
   variant_prevalence:
     report: yes
   R_effective:
-    report: no
+    report: yes
   seroprevalence:
     report: no
   pop_susceptibility:

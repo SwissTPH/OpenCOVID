@@ -332,7 +332,7 @@ plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
   
   # Multiple metrics are OK if plotting 2D arrays only
   if (length(f$metrics) > 1)
-    stop("Multiple metrics are not yet possible")
+    warning("! Beware: multiple metrics are summed in heat maps")
   
   # Valid values for summarise argument
   summarise_valid = c("sum", "mean", "min", "max")
@@ -482,6 +482,8 @@ plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
     
     # Summarise results over time (summary function as defined by 'summarise')
     result_df = rbindlist(result_list) %>%
+      group_by(date, array_type, scenario, group) %>%
+      summarise(value = sum(value)) %>%
       group_by(array_type, scenario, group) %>%
       summarise(value = summarise_fn(value)) %>%
       as.data.table()
@@ -700,7 +702,7 @@ plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
   
   # Plot y label if desired
   if (!is.null(f$y_lab)) g = g + ylab(f$y_lab) else {
-    if (exists("dim_names")) g = g + ylab(dim_names[1])
+    if (exists("dim_names")) g = g + ylab(dim_names[2])
     else g = g + ylab(NULL)
   }
   
