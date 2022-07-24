@@ -1090,11 +1090,16 @@ plot_num_infections = function(o, fig_name, plot_file = NULL, ...) {
   plot_legend = ifelse(f$facet_by == "group", TRUE, FALSE)
   
   # Plot histogram, we can use geom_bar here as we've already binned
-  g = g + geom_bar(stat = "identity", colour = "black", show.legend = plot_legend)
+  g = g + geom_bar(stat   = "identity", 
+                   colour = "black", 
+                   size   = 0.25, 
+                   show.legend = plot_legend)
   
   # Apply error bars if desired
   if (f$uncertainty == TRUE)
-    g = g + geom_errorbar(colour = "darkgrey", width = 0.25, size = 0.5)
+    g = g + geom_errorbar(colour = "darkgrey", 
+                          width  = 0.25, 
+                          size   = 0.25)
   
   # Apply faceting function
   g = g + facet_wrap(as.formula(paste("~", f$facet_by)), labeller = f$label_wrap)
@@ -1113,23 +1118,24 @@ plot_num_infections = function(o, fig_name, plot_file = NULL, ...) {
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(plot.title   = element_text(size = f$fontsize[1], hjust = 0.5),
-          strip.text   = element_text(size = f$fontsize[2]),
-          axis.text.y  = element_text(size = f$fontsize[4]),
-          axis.text.x  = element_text(size = f$fontsize[4], hjust = 1, angle = 50),
-          axis.title   = element_blank(),
-          axis.line    = element_blank(),
+    theme(plot.title    = element_text(size = f$fontsize[1], hjust = 0.5),
+          strip.text    = element_text(size = f$fontsize[2], margin = margin(2, 2, 2, 2)),
+          axis.text.y   = element_text(size = f$fontsize[4]),
+          axis.text.x   = element_text(size = f$fontsize[4], hjust = 1, angle = 50),
+          axis.title    = element_blank(),
+          axis.line     = element_blank(),
           axis.ticks    = element_line(size = 0.25),
           axis.ticks.length = unit(0.1, "lines"),
-          panel.border = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
+          panel.border  = element_rect(size = 0.5, colour = "black", fill = NA),
+          panel.spacing = unit(0.5, "lines"),
           strip.background = element_blank(), 
-          legend.text  = element_text(size = f$fontsize[3]),
-          legend.title = element_blank(),
-          legend.key   = element_blank(),
+          legend.text   = element_text(size = f$fontsize[3]),
+          legend.title  = element_blank(),
+          legend.key    = element_blank(),
+          legend.margin = margin(2, 1, 2, 1),
           legend.position = "bottom",
-          legend.key.height = unit(2, "lines"),
-          legend.key.width  = unit(2, "lines"),
+          legend.key.height = unit(1, "lines"),
+          legend.key.width  = unit(1, "lines"),
           legend.box.background = element_rect())
   
   # Remove tick labels if necessary (ie facets and legend tell the whole story)

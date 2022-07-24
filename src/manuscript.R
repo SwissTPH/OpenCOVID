@@ -20,12 +20,12 @@ manuscript_figures = function(o) {
   do_all = FALSE
   
   # Plotting flags: main figures
-  do_fig1 = FALSE  # Booster strategies
-  do_fig2 = FALSE  # Cumulative strategies (including 6m variants)
-  do_fig3 = FALSE  # Booster coverage
-  do_fig4 = FALSE  # Timing bars
+  do_fig1 = TRUE  # Booster strategies
+  do_fig2 = TRUE  # Cumulative strategies (including 6m variants)
+  do_fig3 = TRUE  # Booster coverage
+  do_fig4 = TRUE  # Timing bars
   do_fig5 = TRUE  # Sensitivity bars
-  do_fig6 = FALSE  # Impact by priority group
+  do_fig6 = TRUE  # Impact by priority group
   
   # Plotting flags: supplement figures
   do_sup1  = FALSE  # Booster strategies (no variant)
@@ -319,7 +319,7 @@ manuscript_figures = function(o) {
                   scenarios     = f$scenarios$key[-1, 1, drop = FALSE],
                   plot_metrics  = f$metrics$key[1 : 2],
                   legend_rows   = 1,
-                  line_width    = 1.5, 
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap, 
                   override_colours = f$colours$key, 
                   override_fontsize = f$fontsize) %>%
@@ -332,7 +332,7 @@ manuscript_figures = function(o) {
                   scenarios     = f$scenarios$key[, 1],
                   plot_metrics  = f$metrics$key[1 : 2],
                   legend_rows   = 5,
-                  line_width    = 1.5, 
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap, 
                   override_colours = f$colours$key, 
                   override_fontsize = f$fontsize) %>%
@@ -353,7 +353,7 @@ manuscript_figures = function(o) {
                   scenarios     = f$scenarios$key[-1, 2, drop = FALSE],
                   plot_metrics  = f$metrics$key[1 : 2],
                   legend_rows   = 1,
-                  line_width    = 1.5, 
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap, 
                   override_colours = f$colours$key, 
                   override_fontsize = f$fontsize) %>%
@@ -367,7 +367,7 @@ manuscript_figures = function(o) {
                   scenarios     = f$scenarios$key[, 2],
                   plot_metrics  = f$metrics$key[1 : 2],
                   legend_rows   = 5,
-                  line_width    = 1.5, 
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap, 
                   override_colours = f$colours$key, 
                   override_fontsize = f$fontsize) %>%
@@ -389,7 +389,7 @@ manuscript_figures = function(o) {
                   scenarios     = f$scenarios$key[-1, 3, drop = FALSE],
                   plot_metrics  = f$metrics$key[1 : 2],
                   legend_rows   = 1,
-                  line_width    = 1.5, 
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap, 
                   override_colours = f$colours$key, 
                   override_fontsize = f$fontsize) %>%
@@ -403,7 +403,7 @@ manuscript_figures = function(o) {
                   scenarios     = f$scenarios$key[, 3],
                   plot_metrics  = f$metrics$key[1 : 2],
                   legend_rows   = 5,
-                  line_width    = 1.5, 
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap, 
                   override_colours = f$colours$key, 
                   override_fontsize = f$fontsize) %>%
@@ -426,7 +426,7 @@ manuscript_figures = function(o) {
                   plot_metrics  = f$metrics$cum,
                   cumulative    = TRUE,
                   legend_rows   = 1,
-                  line_width    = 1.5, 
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap, 
                   override_colours = f$colours$key, 
                   override_fontsize = f$fontsize) %>%
@@ -468,6 +468,7 @@ manuscript_figures = function(o) {
                   plot_baseline = FALSE,
                   scenarios     = f$scenarios$timing,
                   plot_metrics  = f$metrics$time2,
+                  line_width    = 0.75, 
                   n_wrap        = f$text_wrap,
                   override_colours = f$colours$timing,
                   override_fontsize = f$fontsize) %>%
@@ -552,7 +553,7 @@ manuscript_figures = function(o) {
                   aes_reverse   = TRUE,
                   aes_linetype  = FALSE,
                   legend_rows   = 3,
-                  line_width    = 1.5,
+                  line_width    = 0.75,
                   n_wrap        = f$text_wrap,
                   facet_custom  = parse_fn(facet_custom, evaluate = FALSE),
                   facet_labels  = FALSE,
@@ -724,7 +725,7 @@ manuscript_figures = function(o) {
                 legend_rows   = 3,
                 n_wrap        = f$text_wrap,
                 override_colours = f$colours$timing,
-                override_fontsize = c(18, 14, 14, 14))
+                override_fontsize = c(9, 7, 7, 7))
     
     # Timing sensitivity
     fig_name = "Fig S14b - Timing sensitivity"
@@ -1725,7 +1726,7 @@ plot_timing_sensitivity = function(f, fig_name) {
                 method   = "glm", 
                 formula  = y ~ ns(x, n_df), 
                 alpha    = 0.3, 
-                size     = 2)
+                size     = 1)
   
   # Set colour scheme
   g = g + scale_fill_manual(values = colours) + 
@@ -1748,22 +1749,22 @@ plot_timing_sensitivity = function(f, fig_name) {
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(plot.title    = element_text(size = 32, hjust = 0.5),
-          plot.subtitle = element_text(size = 20, hjust = 0.5),
-          plot.margin   = margin(15, 15, 15, 15, "pt"),
-          axis.text     = element_text(size = 16),
+    theme(plot.title    = element_text(size = 16, hjust = 0.5),
+          plot.subtitle = element_text(size = 10, hjust = 0.5),
+          plot.margin   = margin(7, 7, 7, 7, "pt"),
+          axis.text     = element_text(size = 8),
           axis.text.x   = element_text(hjust = 1, angle = 50),
-          axis.title    = element_text(size = 24),
+          axis.title    = element_text(size = 12),
           axis.title.x  = element_blank(),
           axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(2, "lines"),
-          legend.text   = element_text(size = 16),
+          panel.border  = element_rect(size = 0.5, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          legend.text   = element_text(size = 8),
           legend.title  = element_blank(),
           legend.key    = element_blank(),
           legend.position = "bottom", 
-          legend.key.height = unit(2, "lines"),
-          legend.key.width  = unit(2, "lines"),
+          legend.key.height = unit(1, "lines"),
+          legend.key.width  = unit(1, "lines"),
           legend.box.background = element_rect())
   
   # Save these figures to file

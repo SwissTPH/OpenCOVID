@@ -28,7 +28,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$user = Sys.info()[["user"]]
   
   # Name of analysis to run (cannot contain period symbol)
-  o$analysis_name = "demo"
+  o$analysis_name = "booster"
   
   # Set analysis name and create output directory system
   o = set_dirs(o)  # See directories.R
@@ -175,8 +175,8 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$dash_colour = "#808080"  # Even darker grey
 
   # Saved figure size
-  o$save_width  = 14
-  o$save_height = 10
+  o$save_width  = 7
+  o$save_height = 5
   
   # Units of figures sizes
   o$save_units = "in"

@@ -29,7 +29,7 @@ if (interactive()) clc()  # Clear console
 message("Running OpenCOVID v2.2")
 
 # Set options (see options.R)
-o = set_options(do_step = 3)
+o = set_options(do_step = 1 : 3)
 
 # Step 0) Test run a single simulation
 run_model_test(o)  # See unit_tests.R
