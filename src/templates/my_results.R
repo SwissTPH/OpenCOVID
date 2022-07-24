@@ -51,7 +51,7 @@ my_results = function(o) {
   # Reduce down this output to something plottable
   model_output = result$output %>%
     filter(metric %in% c("all_new_infections", "deaths"), 
-           grouping == "vaccine_group")
+           grouping == "priority_group")
   
   # Plot lines over time for each vaccine prioriy group for the two metrics
   g = ggplot(model_output, aes(x = date, y = mean, colour = group)) + 

@@ -76,7 +76,7 @@ run_cluster_job = function(o, job_type, task_id) {
     # Simulate the model for this scenario and this seed (see model.R)
     result = model(o, this_sim$scenario, 
                    seed = this_sim$seed, 
-                   fit  = fit_result$fit_output,
+                   fit  = fit_result$result,
                    verbose = "date") 
     
     # Save model inputs and outputs as an RDS file
@@ -100,14 +100,14 @@ run_cluster_job = function(o, job_type, task_id) {
       pull(sim_id)
     
     # Preallocate list for model outcomes
-    results_list = list()
+    output_list = list()
     
     # Loop through simulations and load model output
     for (sim_id in sim_ids) {
       sim_result = try_load(o$pth$simulations, sim_id, throw_error = !o$impute_failed_jobs)
       
       # Convert to datatable and append sample number
-      results_list[[sim_id]] = sim_result$output
+      output_list[[sim_id]] = sim_result$output
       
       # Check if simulation was succesfully loaded
       if (!is.null(sim_result)) {
@@ -122,18 +122,18 @@ run_cluster_job = function(o, job_type, task_id) {
     }
     
     # Throw an error if no results found
-    if (length(results_list) == 0)
+    if (length(output_list) == 0)
       stop("No results available for scenario '", scenario_name, "'")
     
     # Otherwise values will be imputed
-    impute_sims = setdiff(sim_ids, names(results_list))
+    impute_sims = setdiff(sim_ids, names(output_list))
     
     # Warn the user if this is required
-    if (length(results_list) < 0)
+    if (length(impute_sims) > 0)
       warning("Imputing values for missing simulations: ", 
               paste(impute_sims, collapse = ", "))
     
-    # Initiate analysis list
+    # Initiate analysis list - we'll add summarised model output to this
     result = list(analysis_name = o$analysis_name,
                   scenario_name = scenario_name,
                   time_stamp = format(Sys.time(), "%Y%m%d_%H%M"), 
@@ -141,17 +141,17 @@ run_cluster_job = function(o, job_type, task_id) {
                   input      = sim$input, 
                   network    = sim$network)
     
-    # Create key summary statistics across seeds
-    result$output = rbindlist(results_list) %>% 
-      filter(!is.na(value)) %>% 
-      group_by(date, metric, grouping, group, scenario) %>% 
-      summarise(mean   = mean(value),
-                median = quantile(value, 0.5),
-                lower  = quantile(value, o$quantiles[1]),
-                upper  = quantile(value, o$quantiles[2])) %>% 
-      as.data.table()
+    # Bind model output into single datatable
+    raw_output = rbindlist(output_list)[!is.na(value), ]
     
-    message("Scenario summary complete")
+    # Aggregate any groupings (for appropriate metrics)
+    raw_df = aggregate_results(result$input, raw_output)
+    
+    # Save this raw (ie unsummarised) form of model output
+    saveRDS(raw_df, file = paste0(o$pth$scenarios, scenario_name, "_raw.rds"))
+    
+    # Aggregative and summarise raw model output (see postprocess.R)
+    result = process_results(result, raw_output)
     
     # Store summarised result
     saveRDS(result, file = paste0(o$pth$scenarios, scenario_name, ".rds"))

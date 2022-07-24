@@ -114,6 +114,77 @@ create_bash_log = function(pth, log = NULL, err = NULL) {
 }
 
 # ---------------------------------------------------------
+# Biphasic exponential function
+# ---------------------------------------------------------
+exp_biphasic = function(x, peak, p, d1, d2, vmax, alpha, beta) {
+  
+  # Both exponential 'phases': short and long
+  exp1 = exp(-x * log(2)/d1) * p
+  exp2 = exp(-x * log(2)/d2) * (1-p)
+  
+  # Combine the phases
+  bi_exp = peak * (exp1 + exp2)
+  
+  # Bound above and below
+  bi_exp_scaled = vmax * (1 - 1 / (1 + (bi_exp / beta)^alpha))
+  
+  return(bi_exp_scaled)
+}
+
+# ---------------------------------------------------------
+# Double exponential function
+# ---------------------------------------------------------
+exp_double = function(x, b, g, h, d) {
+  y = (h * b * exp(-d * x)) / ((h - b) * exp(-g * x) + b)
+  return(y)
+}
+
+# ---------------------------------------------------------
+# Extract facets rows and columns from a ggplot object
+# ---------------------------------------------------------
+facet_dims = function(g) {
+  g_layout = ggplot_build(g)$layout$layout
+  n_rows = length(unique(g_layout$ROW))
+  n_cols = length(unique(g_layout$COL))
+  return(c(n_rows, n_cols))
+}
+
+# ---------------------------------------------------------
+# A wrapper for tagger::tag_facets with a few extras
+# ---------------------------------------------------------
+facet_labels = function(g, f, ...) {
+  
+  # Default arguments
+  args = list(tag = "panel", 
+              tag_levels = c("A", "1"), 
+              tag_suffix = "")
+  
+  # Overwrite these if desired
+  args = list_modify(args, !!!list(...))
+  
+  # Determine if ggh4x is being used
+  str_ggh4x = "facet_[\\<wrap\\>,\\<grid\\>]{4}2"
+  use_ggh4x = grepl(str_ggh4x, f$facet_custom)
+  
+  # If yes, we need to reverse direction of labels
+  if (isTRUE(use_ggh4x)) {
+    
+    warning("Facet labelling does not work well with ggh4x")
+    
+    return(g)
+    
+    # f_dims = facet_dims(g)
+
+    # tag_pool = LETTERS[1 : prod(f_dims)]
+  }
+  
+  # Call tag_facets function with these arguments
+  g = g + do.call(tag_facets, args) 
+  
+  return(g)
+}
+
+# ---------------------------------------------------------
 # Platform specific file separator - for readability
 # ---------------------------------------------------------
 file_sep = function() {
@@ -148,10 +219,18 @@ list2dt = function(x, ...) {
 }
 
 # ---------------------------------------------------------
-# Logistic curve
+# Logistic function
 # ---------------------------------------------------------
 logistic = function(x, slope, mid, lower = 0, upper = 1) {
   y = upper + (lower - upper) / (1 + (x / mid) ^ slope)
+  return(y)
+}
+
+# ---------------------------------------------------------
+# Inverse logistic function
+# ---------------------------------------------------------
+logistic_inv = function(x, slope, mid, lb, ub) {
+  y = 1 - logistic(x, slope, mid, lower = 1 - ub, upper = 1 - lb)
   return(y)
 }
 

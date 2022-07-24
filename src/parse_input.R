@@ -109,17 +109,43 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   if (any(sapply(y$contact_matrix_countries, nchar) != 2))
     stop("Use ISO Alpha-2 country codes for 'contact_matrix_countries' parameters")
   
-  # ---- Risk groups ----
+  # ---- Priority and risk groups ----
   
-  # Convert nested list into datatable
-  y$risk_groups = y$risk_groups %>% 
+  # Priority groups: convert into datatable and sort by priority
+  y$priority_groups = y$priority_groups %>% 
     lapply(as.data.table) %>% 
     rbindlist() %>%
-    mutate(name = names(y$risk_groups), .before = 1)
+    mutate(priority = as.integer(priority)) %>%
+    arrange(priority)
   
-  # Sanity check that upper age is no more than age_max
-  if (any(y$risk_groups$age_upper > age_max))
-    stop("Invalid risk group age range")
+  # Ensure the priority ranking makes sense - require groups are defined 1 : n
+  if (!identical(y$priority_groups$priority, 1 : nrow(y$priority_groups)))
+    stop("Priority of priority groups must be ranked 1 : n")
+  
+  # Loop through the different types of testing
+  for (risk_group in names(y$risk_groups)) {
+    risk_info = y$risk_groups[[risk_group]]
+    
+    # Ages for this risk group (bound above by maximum age)
+    ages = seq(min(risk_info$age_lower, max(y$age$all)), 
+               min(risk_info$age_upper, max(y$age$all)), by = 1)
+    
+    # Values to evaluate risk group probabilities for - normalised ages
+    along_vals = list(x = seq(0, 1, length.out = length(ages)))
+    
+    # Evaluate the user-defined function 
+    age_dist = parse_fn(fn_args = risk_info$age_dist, along = along_vals)
+    
+    # Normalise to a mean of one then multiply through by probability
+    age_prob = (age_dist / mean(age_dist)) * risk_info$probability
+    
+    # Probability vector for ALL ages (zeros where appropriate)
+    risk_info$probability = rep(0, length(y$age$all))
+    risk_info$probability[y$age$all %in% ages] = age_prob
+    
+    # Remove all redundant items and store age-probability values
+    y$risk_groups[[risk_group]] = risk_info[qc(id, probability)]
+  }
   
   # ---- Importation ----
   
@@ -240,27 +266,15 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   
   # ---- Waning immunity ----
   
-  # Initiate a temporal vector of acquired immunity effect over time
-  a = y$acquired_immunity
-  a$profile = rep(a$value, n_days_total)
-  
-  # If simulating long enough, also consider acquired immunity decay
-  if (n_days_total > a$decay_init) {
-    
-    # Linear decay from initial immunity to zero
-    decay_vec = seq(a$profile[a$decay_init], 0, length.out = a$decay_duration)
-    
-    # Apply this decay - clipping vector if necessary
-    decay_idx = 1 : min(a$decay_duration, n_days_total - a$decay_init)
-    a$profile[a$decay_init + decay_idx] = decay_vec[decay_idx]
-    
-    # After this point, assume acquired immunity is zero
-    if (max(decay_idx) == a$decay_duration)
-      a$profile[(a$decay_init + max(decay_idx) + 1) : n_days_total] = 0
-  }
-  
-  # Overwrite acquired_immunity item with temporal profile
-  y$acquired_immunity = a$profile
+  # Points to evaluate (all of them)
+  x_vals = paste(1, ":", n_days_total)
+
+  # Evaluate the booster dose function at these points
+  waning_profile = parse_fn(fn_args = y$acquired_immunity,
+                            along   = list(x = x_vals))
+
+  # This is our vaccine booster profile
+  y$acquired_immunity = waning_profile
   
   # ---- Testing and diagnosis ----
   
@@ -314,8 +328,8 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
     filter(import_number > 0) %>% 
     mutate(import_number = ceiling(import_number / 1e5 * y$population_size), 
            infectivity   = infectivity * variant_primary$infectivity, 
-           severity      = severity    * variant_primary$severity) %>%
-    arrange(import_day)
+           severity      = severity    * variant_primary$severity) # %>%
+    # arrange(import_day)
   
   # Concatenate variants
   #
@@ -327,131 +341,119 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   
   # ---- Vaccine properties ----
   
-  # If using a custom vaccine, apply user-defined vaccine properties
-  if (y$vaccine_type == "custom") {
-    v = append(list(id = y$vaccine_type), y$vaccine_custom)
+  # Initiate a new list, v, from vaccine definition
+  v = y$vaccine_defintion
+  
+  # Preallocate vectors for vaccine and booster dose profiles
+  v$profile = y$booster_profile = rep(NA, n_days_total)
+  
+  # Extract efficacy details for the vaccine
+  efficacy_df = as.data.table(v$efficacy)
+  
+  # One row for each dose
+  n_doses = nrow(efficacy_df)
+  
+  # We also need a dose delivery day for each (subsequent) dose
+  dose_days = c(1, v$subsequent_dose_days)
+  
+  # Ensure that the number of doses are consistent
+  if (n_doses != length(dose_days))
+    stop("Inconsistent defintions for number of doses")
+  
+  # Iterate through the doses
+  for (i in seq_len(n_doses)) {
     
-  } else {  # ... or extract a named vaccine
-    v = append(list(id = y$vaccine_type), y$vaccine_defintion[[y$vaccine_type]])
+    # Convert details for this dose back to a list in order to apply parse_fn
+    efficacy_list = as.list(efficacy_df[i, ])
+    
+    # Values to evaluate the function for (as a string)
+    x_vals = paste(1, ":", n_days_total - dose_days[i] + 1)
+    
+    # Evaluate the vaccine dose function at these points
+    dose_profile = parse_fn(fn_args = efficacy_list, 
+                            along   = list(x = x_vals))
+    
+    # Insert the outcome into the vaccine profile vector after the dose day
+    v$profile[dose_days[i] : n_days_total] = dose_profile
   }
   
-  # Transmission blocking effect cannot be more than total efficacy
-  if (v$transmission_blocking >= v$efficacy)
-    stop("Vaccine transmission blocking effect is greater than total efficacy")
+  # Now do the same thing for the booster...
   
-  # The remaining effect comes from infections that do not result in severe disease
-  v$disease_prevention = v$efficacy - v$transmission_blocking
+  # Points to evaluate (all of them)
+  x_vals = paste(1, ":", n_days_total)
   
-  # Remove redundant items
-  y[c("vaccine_type", "vaccine_defintion", "vaccine_custom")] = NULL
+  # Evaluate the booster dose function at these points
+  dose_profile = parse_fn(fn_args = v$booster_efficacy, 
+                          along   = list(x = x_vals))
   
-  # ---- Vaccine profile ----
+  # This is our vaccine booster profile
+  y$booster_profile[1 : n_days_total] = dose_profile
   
-  # Evaluate vaccine immunity growth function
-  growth_shape = parse_fn(fn_args = v$growth_fn, 
-                          along   = list(x = paste("1", ":", n_days_total)))
+  # Remove redundant items from v
+  v[c("efficacy", "booster_efficacy")] = NULL
   
-  # Multiply through by maximum efficacy for vaccine immunity scale up
-  v$profile = growth_shape * v$efficacy
-  
-  # Preallocate for booster dose profile
-  v$booster = rep(NA, n_days_total)
-  
-  # Leave NA's for growth period - need to calculate these as we go
-  v$booster[1 : n_days_total] = v$booster_efficacy
-  
-  # If simulating long enough, also consider vaccine immunity decay
-  if (n_days_total > v$decay_init) {
-    
-    # Linear decay from current immunity to zero
-    decay_vaccine = seq(v$profile[v$decay_init], 0, length.out = v$decay_duration)
-    decay_booster = seq(v$booster[v$decay_init], 0, length.out = v$decay_duration)
-    
-    # Apply this decay - clipping vector if necessary
-    decay_idx = 1 : min(v$decay_duration, n_days_total - v$decay_init)
-    v$profile[v$decay_init + decay_idx] = decay_vaccine[decay_idx]
-    v$booster[v$decay_init + decay_idx] = decay_booster[decay_idx]
-    
-    # After this point, assume immunity is zero
-    if (max(decay_idx) == v$decay_duration) {
-      v$profile[(v$decay_init + max(decay_idx) + 1) : n_days_total] = 0
-      v$booster[(v$decay_init + max(decay_idx) + 1) : n_days_total] = 0
-    }
-  }
-  
-  # Rename list item to make it clear that this is a temporal profile
-  names(v)[names(v) == "booster"] = "booster_profile"
-  
-  # Remove redundant items
-  v[c("growth_fn")] = NULL
+  # Remove redundant items from y
+  y[c("vaccine_defintion")] = NULL
   
   # ---- Vaccine rollout ----
   
-  # Join vaccine history and rollout tables
-  v$groups = list2dt(y$vaccine_history) %>% 
-    full_join(list2dt(y$vaccine_rollout), by = "id") %>%
-    mutate(priority = as.integer(priority)) %>%
-    arrange(priority)
+  # Join vaccine history and future details with priority groups
+  v$details = y$priority_groups[, .(id)] %>%
+    full_join(list2dt(y$vaccine_history), by = "id") %>%
+    full_join(list2dt(y$vaccine_rollout), by = "id")
   
   # Check for any missing values - will occur if priority groups do not align
-  if (any(is.na(v$groups)))
-    stop("Non-conformable vaccine history and vaccine rollout defintions")
+  if (any(is.na(v$details)))
+    stop("Non-conformable priority groups and vaccine history/rollout defintions")
   
   # Sanity check: n_days_init should be greater than all vaccine init start dates
-  if (any(v$groups$init_start < y$n_days_init))
+  if (any(v$details$init_start < y$n_days_init))
     stop("It is an error to initiate vaccination before epidemic outbreak")
   
   # Sanity check: init dates should be neagtive
-  if (any(v$groups[, .(init_start, init_end)] > 0))
+  if (any(v$details[, .(init_start, init_end)] > 0))
     stop("Vaccine history 'init_start' and 'init_end' must be non-positive")
   
   # Sanity check: end date not before start date
-  if (any(v$groups[, init_start > init_end]))
+  if (any(v$details[, init_start > init_end]))
     stop("Vaccine history 'init_start' cannot be greater than 'init_end'")
   
   # Sanity check: 
-  if (any(v$groups[init_start == init_end, init_coverage] > 1e-6))
+  if (any(v$details[init_start == init_end, init_coverage] > 1e-6))
     stop("Vaccine history 'init_coverage' must be zero if 'init_start' == 'init_end'")
   
   # Sanity check: mas scale-up dates should positive
-  if (any(v$groups[, .(max_start, max_end)] < 0))
+  if (any(v$details[, .(max_start, max_end)] < 0))
     stop("Vaccine rollout 'max_start' and 'max_end' must be non-negative")
   
   # Sanity check: end date not before start date
-  if (any(v$groups[, max_start > max_end]))
+  if (any(v$details[, max_start > max_end]))
     stop("Vaccine rollout 'max_start' cannot be greater than 'max_end'")
   
   # Sanity check: Max coverage should be at least init coverage
-  if (any(v$groups[, init_coverage - max_coverage] > 1e-6))
+  if (any(v$details[, init_coverage - max_coverage] > 1e-6))
     stop("Vaccine 'init_coverage' cannot be greater than 'max_coverage'")
   
   # Sanity check: We cannot scale-up further if there is no time to do so
-  if (any(v$groups[max_start == max_end, max_coverage - init_coverage] > 1e-6))
+  if (any(v$details[max_start == max_end, max_coverage - init_coverage] > 1e-6))
     stop("Vaccine 'max_coverage' must be equal to 'init_coverage' if 'max_start' == 'max_end'")
   
-  # Append number of vaccine groups and initial vaccine coverage
-  v$n_groups = nrow(v$groups)
-  
-  # Ensure the priority ranking makes sense - require groups are defined 1 : n
-  if (!identical(v$groups$priority, 1 : v$n_groups))
-    stop("Priority of vaccine groups must be ranked 1 : n")
-  
   # Vaccine booster details - totally fine to have NAs here
-  v$booster_groups = v$groups[, .(id)] %>% 
+  y$booster_details = y$priority_groups[, .(id)] %>% 
     left_join(list2dt(y$booster_rollout)[probability > 0], by = "id") %>%
-    rename(vaccine_group = id) %>%
     mutate(probability = pmin(pmax(probability, 0, na.rm = TRUE), 1), 
-           start       = pmin(start, force_start, na.rm = TRUE))
+           start       = pmin(start, force_start, na.rm = TRUE), 
+           force_end   = ifelse(is.na(force_end), Inf, force_end))  # Use Inf rather than NA
   
   # Scale boosters per day for this population size
   y$booster_doses = (y$booster_doses / 1e5) * y$population_size
   
   # Day last vaccination given for each group
-  group_end = v$groups[, ifelse(max_end > 0, max_end, init_end)]
+  group_end = v$details[, ifelse(max_end > 0, max_end, init_end)]
   
   # Check that all groups are finished vaccinating before boosters are forced
-  force_check = group_end >= v$booster_groups$force_start
-  force_fail  = v$groups$id[sapply(force_check, isTRUE)]
+  force_check = group_end >= y$booster_details$force_start
+  force_fail  = v$details$id[sapply(force_check, isTRUE)]
   
   # Sanity check that boosters are not forced before everyone in this group is vaccinated
   if (length(force_fail) > 0)
@@ -459,14 +461,14 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
          paste(force_fail, collapse = ", "))
   
   # Preallocate temporal vaccine coverage matrix (one column per priority group)
-  v$coverage = t(matrix(data = v$groups$init_coverage, 
+  v$coverage = t(matrix(data = v$details$init_coverage, 
                         ncol = y$n_days, 
-                        nrow = v$n_groups, 
-                        dimnames = list(v$groups$id)))
+                        nrow = nrow(y$priority_groups), 
+                        dimnames = list(v$details$id)))
   
   # Loop through the priority groups
-  for (i in seq_len(v$n_groups)) {
-    this_group = v$groups[i, ]
+  for (i in seq_len(nrow(y$priority_groups))) {
+    this_group = v$details[i, ]
     
     # Skip this process if no max coverage to reach
     if (this_group$max_start < y$n_days && 
@@ -494,10 +496,84 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
     stop("Vaccine coverage matrix contains NAs")
   
   # Remove redundant items
-  y[c("vaccine_history", "vaccine_rollout")] = NULL
+  y[c("vaccine_history", "vaccine_rollout", "booster_rollout")] = NULL
   
   # We can now append the vaccine list to output list
   y$vaccine = v
+  
+  # ---- PrEP ----
+  
+  # Initiate a new list containing key PrEP details
+  y$prep = y$prep_defintion[qc(name, transmission_blocking)]
+  
+  # Evaluate the PrEP efficacy over all possible time points
+  y$prep$profile = parse_fn(fn_args = y$prep_defintion$efficacy, 
+                            along   = list(x = 1 : n_days_total))
+  
+  # PrEP rollout feature is still pretty basic - this will change in future versions
+  if (any(y$prep_rollout[qc(start, end)] < 0))
+    stop("\n PrEP functionality is still under development.
+         \n For now, please initiate implementation in the future.")
+  
+  # Preallocate PrEP coverage vector
+  y$prep$coverage = rep(0, y$n_days)
+  
+  # Linear scale up from current to maximal coverage
+  growth_vec = seq(0, y$prep_rollout$coverage, 
+                   length.out = y$prep_rollout$end - y$prep_rollout$start + 1)
+  
+  # Date indicies of growth scale up - may be truncated by n_days
+  growth_idx = seq_along(growth_vec) + y$prep_rollout$start - 1
+  growth_idx = growth_idx[growth_idx <= y$n_days]
+  
+  # Apply this coverage - clipping vector if necessary
+  y$prep$coverage[growth_idx] = growth_vec[seq_along(growth_idx)]
+  
+  # Set remaining days to max coverage
+  if (y$prep_rollout$end < y$n_days)
+    y$prep$coverage[max(growth_idx) : y$n_days] = y$prep_rollout$coverage
+  
+  # Remove redundant items from y
+  y[c("prep_defintion", "prep_rollout")] = NULL
+  
+  # ---- Treatment ----
+  
+  # TODO: Check consistency of priority groups
+  
+  # TODO: We need more flexibility here, any priority group could be defined multiple times
+  
+  # Convert treatment details into datatable
+  treat_df = list2dt(y$treatment)
+  
+  # Check whether vaccine conditions are valid
+  valid_condition = unique(treat_df$vaccine_condition) %in% 
+    c("vaccinated", "unvaccinated", "none")
+  
+  # Throw an error if any are not
+  if (!all(valid_condition))
+    stop("Unvalid vaccine conditions defined for treatment products ", 
+         "(must be 'vaccinated', 'unvaccinated', or 'none')")
+  
+  # Dates treatment becomes available and vaccine condition for this treatment
+  y$treat_available = treat_df %>%
+    select(priority_group = id, available, vaccine_condition)
+  
+  # Long datatable of priority groups and treatment probabilities
+  #
+  # NOTE: Efficacy is factored in here too (so 'treat_prop' is effective treatment probability)
+  y$treat_prob = treat_df %>%
+    select(-available, -vaccine_condition) %>%
+    pivot_longer(cols = -id) %>%
+    mutate(name  = str_remove(name, "prob_"), 
+           value = ifelse(is.na(value), 0, 
+                          value * y$treat_efficacy)) %>%
+    rename(priority_group = id, 
+           disease_state  = name, 
+           treat_prob     = value) %>%
+    as.data.table()
+  
+  # Remove redundant items
+  y[c("treatment")] = NULL
   
   # ---- Model states and model metrics ----
   
@@ -509,23 +585,23 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   
   # ---- Model output groupings ----
   
-  # Sanity check that max number of infections allowed is positive
+  # Sanity check that max number of infections to count is positive
   if (y$max_infections < 1)
     stop("Parameter 'max_infections' must be a positive integer")
   
   # List of all possible metric groups, and their respective groups
-  y$count = list(age           = y$age$all, 
-                 infections    = 1 : y$max_infections, 
-                 variant       = y$variants$id, 
-                 vaccine_group = c(v$groups$id, "none"))
+  y$count = list(age            = y$age$all, 
+                 infections     = 0 : y$max_infections, 
+                 variant        = y$variants$id, 
+                 priority_group = c(y$priority_groups$id, "none"))
   
   # Dictionaries for variants and vaccine groups
-  variant_dict = setNames(y$variants$name, y$variants$id)
-  vaccine_dict = setNames(v$groups$name,   v$groups$id) %>% 
-    c(setNames("Ineligible", "none"))
+  variant_dict  = setNames(y$variants$name, y$variants$id)
+  priority_dict = setNames(y$priority_groups$name, y$priority_groups$id) %>% 
+    c(setNames("Vaccine ineligible", "none"))
   
   # Append to dict list (current contains metric names and IDs)
-  y$dict = list.append(y$dict, variant = variant_dict, vaccine_group = vaccine_dict)
+  y$dict = list.append(y$dict, variant = variant_dict, priority_group = priority_dict)
   
   # Remove redundant items
   y[c("max_infection_count")] = NULL
@@ -549,29 +625,6 @@ overwrite_defaults = function(y, y_overwrite) {
   # Sanity checks on user-defined inputs
   do_checks(y1 = y, y2 = y_overwrite)
   
-  # ---- Special case: named vaccines ----
-  
-  # Error message to help point user in the right direction
-  use_custom = "use 'custom' to apply alternative properties"
-  
-  # Check a vaccine been defined (if not, a default is used)
-  if (!is.null(y_overwrite$vaccine_type)) {
-    
-    # Allow only named vaccines or 'custom'
-    if (!y_overwrite$vaccine_type %in% c("custom", names(y$vaccine_defintion)))
-      stop("Vaccine '", y_overwrite$vaccine, "' is not defined - ", use_custom)
-    
-    # If 'custom' vaccine has not been selected, it doesn't make sence to define custom properties
-    if (y_overwrite$vaccine_type != "custom" && !is.null(y_overwrite$vaccine_custom))
-      stop("It is an error to select a named vaccine but also define custom vaccine properties")
-  }
-  
-  # Do not allow the overwriting of vaccine definitions period - use 'custom' for this
-  if (!is.null(y_overwrite$vaccine_defintion))
-    stop("It is an error to redefine named vaccines - ", use_custom)
-  
-  # NOTE: If you really do want to redefine named vaccines, do this in default.yaml
-  
   # ---- Special case: booster force start ----
   
   # Booster start date uses FALSE to denote off - convert to integer NA for class consistency
@@ -584,6 +637,23 @@ overwrite_defaults = function(y, y_overwrite) {
   if (!is.null(y_overwrite$booster_rollout))
     y_overwrite$booster_rollout = na_fn(y_overwrite$booster_rollout)
   
+  # ---- Special case: scenarios ----
+  
+  # The one exception for overwriting is scenarios, which we'll concatenate
+  y$scenarios = c(y$scenarios, y_overwrite$scenarios)
+  
+  # User defined scenarios can now be removed from this list
+  y_overwrite$scenarios = NULL
+  
+  # ---- Special case: calibration ----
+  
+  # If user has defined a calibration block, use this directly
+  if (!is.null(y_overwrite$calibration))
+    y$calibration = y_overwrite$calibration
+  
+  # Any user defined calibration can now be removed from this list
+  y_overwrite$calibration = NULL
+  
   # ---- Special case: demography ----
   
   # If defined by user, overwrite
@@ -592,14 +662,6 @@ overwrite_defaults = function(y, y_overwrite) {
   
   # Then remove from user-defined list
   y_overwrite$demography = NULL
-  
-  # ---- Special case: scenarios ----
-  
-  # The one exception for overwriting is scenarios, which we'll concatenate
-  y$scenarios = c(y$scenarios, y_overwrite$scenarios)
-  
-  # User defined scenarios can now be removed from this list
-  y_overwrite$scenarios = NULL
   
   # ---- Name all unnamed lists with unique IDs ----
   
@@ -1086,15 +1148,33 @@ parse_model_metrics = function(o, y) {
     mutate(metric = names(y$model_metrics), .before = 1) %>% 
     rename(grouping = by) %>% 
     right_join(read_excel(o$pth$metrics, 1), by = "metric") %>%
-    mutate(aggregate  = as.logical(aggregate), 
-           temporal   = as.logical(temporal), 
-           cumulative = as.logical(cumulative), 
-           scaled     = as.logical(scaled), 
-           grouping   = ifelse(metric == "n_infections", "infections", grouping),  # Special case
-           grouping   = ifelse(metric == "variant_prevalence", "variant", grouping),  # Special case
-           grouping   = ifelse(is.na(grouping), "na", grouping)) %>%
+    mutate_if(is.numeric, as.logical) %>%
+    mutate(grouping = ifelse(coverage == TRUE & grouping != "none", 
+                             paste0("none, ", grouping), grouping),                 # See note 1
+           grouping = ifelse(metric == "variant_prevalence", "variant", grouping),  # See note 2
+           grouping = ifelse(metric == "n_infections", "infections", grouping),     # See note 3
+           grouping = ifelse(is.na(grouping), "na", grouping)) %>%
     filter(report == TRUE) %>%
     select(-report, -notes)
+  
+  # NOTES: 
+  #  1) We can't aggregate for coverages due to different denominators, so we'll
+  #     need to explictly record total coverages aside from coverages by group
+  #  2) Variant prevalence is a special case: group by 'variant' only
+  #  3) Number of infections is also a special case: group by 'infections' only
+
+  # ---- Check groupings ----
+  
+  # Ensure all 'non-grouped' metrics are NA
+  nongroup_metrics = metrics_df[grouped == FALSE & grouping != "na", metric]
+  if (length(nongroup_metrics) > 0)
+    stop("Metrics can not be 'grouped by': ", paste(nongroup_metrics, collapse = ", "))
+  
+  # Ensure all group-able metrics are either specified or set to 'none'
+  group_metrics = metrics_df[grouped == TRUE & grouping == "na", metric]
+  if (length(group_metrics) > 0)
+    stop("Metrics must be 'grouped by' (use by = 'none' to turn off): ", 
+         paste(group_metrics, collapse = ", "))
   
   # All the various types of groupings requested by the user
   groupings = str_split(str_remove_all(metrics_df$grouping, " "), ",")
@@ -1106,11 +1186,11 @@ parse_model_metrics = function(o, y) {
   all_groupings = setNames(unlist(groupings), grouping_metrics)
   
   # Groupings known and understood by the model
-  known_groupings = c("age", "variant", "vaccine_group", "infections", "none", "na")
+  known_groupings = c("age", "variant", "priority_group", "infections", "none", "na")
   
   # Are any unknown
   unknown_groupings = setdiff(unique(all_groupings), known_groupings)
-  if (length(unknown_groupings > 0))
+  if (length(unknown_groupings) > 0)
     stop("Unknown metric grouping(s): ", paste(unknown_groupings, collapse = ", "))
   
   # ---- Parse the input ----

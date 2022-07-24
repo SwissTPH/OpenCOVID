@@ -53,8 +53,9 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
     plot_list[[scenario]] = format_results(o, f, result)  # See postprocess.R
   }
   
-  # Normal use case is to reverse scenarios (so they are on top)
-  if (f$plot_type == "group") scenario_levels = f$scenario_names
+  # Normal use case is to reverse scenarios (so baseline is on top)
+  if (f$plot_type %in% c("group", "scenario_group")) 
+    scenario_levels = f$scenario_names
   else scenario_levels = rev(f$scenario_names)
   
   # Concatenate plotting dataframes for all scenarios
@@ -62,6 +63,21 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
     mutate(metric   = recode(metric,   !!!f$metric_names), 
            scenario = recode(scenario, !!!f$scenario_names), 
            scenario = factor(scenario, levels = scenario_levels))
+  
+  # Append scenario grouping details if plotting by scenario groups  
+  if (f$plot_type == "scenario_group") {
+    
+    # We need to apply additional factoring to retain correct order
+    levels_group = unique(f$scenario_groups$scenario_group)
+    levels_type  = unique(f$scenario_groups$scenario_type)
+    
+    # Append scenario grouping details 
+    plot_df = plot_df %>% 
+      left_join(f$scenario_groups, by = "scenario") %>%
+      mutate(scenario       = factor(scenario,       levels = scenario_levels), 
+             scenario_group = factor(scenario_group, levels = levels_group), 
+             scenario_type  = factor(scenario_type,  levels = levels_type))
+  }
   
   # ---- Apply dates if necessary ----
   
@@ -75,17 +91,46 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
     plot_df$date = all_dates[plot_df$date]
   }
   
-  # ---- Create figure ----
+  # ---- Create basic figure ----
+  
+  # In most cases the plot_type difines the colour scheme
+  aes_by = list(colour = f$plot_type, fill = f$plot_type)
+  
+  # We need a slightly different aesthetic configuration if plotting by scenario_group
+  if (f$plot_type == "scenario_group") {
+    
+    # Normal use case is to differentiate types by dashed lines
+    aes_by$colour = "scenario"
+    aes_by$fill   = "scenario"
+    aes_by$line   = "scenario_type"
+    
+    # However this can also be reversed, so types by colours and groups by dashes
+    if (f$aes_reverse == TRUE)
+      aes_by = list(colour = "scenario_type", 
+                    fill   = "scenario_type", 
+                    line   = "scenario_group")
+  }
+  
+  # Turn off linetype is not desired
+  if (f$aes_linetype == FALSE)
+    aes_by$line = NULL
   
   # Initiate ggplot structure with each metric in it's facet
-  g = ggplot(plot_df, aes_string(x = "date", y = "value", colour = f$plot_type, fill = f$plot_type))
+  g = ggplot(plot_df, aes_string(x = "date", y = "value", 
+                                 colour   = aes_by$colour, 
+                                 fill     = aes_by$fill, 
+                                 linetype = aes_by$line))
   
   # Several options for plotting geom - default is a line graph
   if (f$plot_geom == "line") {
     
-    # Plot best estimate line with uncertainty bounds
-    g = g + geom_ribbon(aes(ymin = lower, ymax = upper), linetype = 0, alpha = 0.3) + 
-      geom_line(size = 2)
+    # Plot uncertainty bounds first (if desired)
+    if (f$uncertainty == TRUE)
+      g = g + geom_ribbon(aes(ymin = lower, ymax = upper), 
+                          linetype = 0, alpha = 0.3)
+    
+    # Plot best estimate line on top
+    g = g + geom_line(size = f$line_width)
     
     # Area plot over time - useful when plotting age groups
   } else if (f$plot_geom == "area") {
@@ -95,27 +140,45 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
     stop("Value of plot_geom '", f$plot_geom, "' not recognised")
   }
   
-  # Shorthand for metrics strip wrapping
-  l = label_wrap_gen(f$n_wrap)
+  # ---- Generate facets ----
   
-  # If plotting by group, use special faceting (could be busy!)
-  if (f$plot_type == "group") {
+  # Possible to define custom faceting function, in the form of evaluable string
+  if (!is.null(f$facet_custom))
+    eval(parse(text = paste0("g = g + ", f$facet_custom)))
+  
+  # Most common use case is to use facet_wrap/grid based on what is being varied
+  if (is.null(f$facet_custom)) {
     
-    # Only one metric (and multiple scenarios): wrap by scenarios
-    if (f$n_metrics == 1 && f$n_scenarios > 1)
-      g = g + facet_wrap(~scenario, scales = "free", nrow = f$facet_rows, labeller = l)
+    # Most common use case is to wrap by metric
+    if (f$plot_type %in% c("scenario", "metric"))
+      g = g + facet_wrap(~metric, scales = "free", nrow = f$facet_rows, labeller = f$label_wrap)
     
-    # Only one scenario (n_metrics irrelevant): wrap by metrics
-    if (f$n_scenarios == 1)
-      g = g + facet_wrap(~metric, scales = "free", nrow = f$facet_rows, labeller = l)
+    # Scenario groups use metric x scenario_group grid
+    if (f$plot_type == "scenario_group")
+      g = g + facet_grid(metric~scenario_group, scales = "free", labeller = f$label_grid)
     
-    # Multiple metrics and multiple scenarions: grid faceting
-    if (f$n_metrics > 1 && f$n_scenarios > 1)
-      g = g + facet_grid(metric~scenario, scales = "free", labeller = l)
-    
-  } else {  # Otherwise just wrap by metric
-    g = g + facet_wrap(~metric, scales = "free", nrow = f$facet_rows, labeller = l)
+    # If plotting by group, use special faceting (could be busy!)
+    if (f$plot_type == "group") {
+      
+      # Only one metric (and multiple scenarios): wrap by scenarios
+      if (f$n_metrics == 1 && f$n_scenarios > 1)
+        g = g + facet_wrap(~scenario, nrow = f$facet_rows, labeller = f$label_wrap)
+      
+      # Only one scenario (n_metrics irrelevant): wrap by metrics
+      if (f$n_scenarios == 1)
+        g = g + facet_wrap(~metric, scales = "free", nrow = f$facet_rows, labeller = f$label_wrap)
+      
+      # Multiple metrics and multiple scenarions: grid faceting
+      if (f$n_metrics > 1 && f$n_scenarios > 1)
+        g = g + facet_grid(metric~scenario, scales = "free", labeller = f$label_grid)
+    }
   }
+  
+  # Tag facets if desired
+  if (f$facet_labels == TRUE)
+    g = facet_labels(g, f)
+  
+  # ---- Effective reproduction number ----
   
   # Add a vertical line at 1 if plotting effective reproduction number
   if ("R_effective" %in% f$metrics) {
@@ -154,8 +217,21 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
       scale_fill_manual(values = rev(f$colours), labels = rev(f$scenario_names))
     
     # Reverse legend order so baseline is at the top
-    apply_guide = guide_legend(reverse = TRUE, nrow = f$legend_rows, byrow = TRUE)
+    apply_guide = guide_legend(reverse = TRUE, nrow = f$legend_rows, byrow = f$legend_by_row)
     g = g + guides(colour = apply_guide, fill = apply_guide)
+  }
+  
+  # Most legends are irrelevant when plotting by scenario groups
+  if (f$plot_type == "scenario_group") {
+    apply_guide = guide_legend(nrow = f$legend_rows, byrow = f$legend_by_row)
+    
+    # Turn off colour legend
+    if (!f$aes_reverse)
+      g = g + guides(colour = "none", fill = "none", linetype = apply_guide)
+    
+    # Turn off linetype legend
+    if (f$aes_reverse)
+      g = g + guides(colour = apply_guide, fill = apply_guide, linetype = "none")  
   }
   
   # Prettify y-axis
@@ -170,9 +246,10 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
   
   # Prettify x-axis: dates
   if (f$plot_dates == TRUE)
-    g = g + scale_x_date(date_breaks = "1 month",  # "2 weeks"
-                         date_labels = "%b %y",  # Month-year: "%b %y"; Day-month: "%d %b"
-                         limits = c(f$plot_from, f$plot_to), 
+    g = g + scale_x_date(date_breaks = f$date_breaks,
+                         date_labels = f$date_labels,
+                         limits = c(all_dates[f$plot_from], 
+                                    all_dates[f$plot_to]), 
                          expand = expansion(mult = c(0, 0)))
   
   # Prettify theme
@@ -181,11 +258,16 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
           strip.text   = element_text(size = f$fontsize[2]),
           axis.text    = element_text(size = f$fontsize[4]),
           axis.title   = element_blank(),
+          axis.line    = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
           legend.text  = element_text(size = f$fontsize[3]),
           legend.title = element_blank(),
           legend.key   = element_blank(),
           legend.position = "bottom", 
           legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
           legend.box.background = element_rect())
   
   # Rotate x tick labels if plotting dates
@@ -201,23 +283,28 @@ plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
     fig_save(o, g, fig_name)
   
   return(g)
-}  
+}
 
 # ---------------------------------------------------------
 # Plot metrics over time for multiple metrics, groups, and/or scenarios
 # ---------------------------------------------------------
-plot_impact = function(o, fig_name, error_bars = TRUE, ...) {
+plot_impact = function(o, fig_name, plot_file = NULL, ...) {
+  
+  # Collate key word arguments and override geom
+  args = list_modify(list(...), plot_geom = "bar")
   
   # ---- Figure properties ----
   
   # Scenarios to plot
   f = fig_scenarios(o, list(...))
   
-  # Load baseline (or alt baseline) file
-  baseline = try_load(o$pth$scenarios, f$baseline_name)
-  
-  # Collate key word arguments and override geom
-  args = list_modify(list(...), plot_geom = "bar")
+  # Handle alternative functionality case - file fed in directly
+  if (!is.null(plot_file)) baseline = plot_file
+  else {
+    
+    # Otherwise load baseline file
+    baseline = try_load(o$pth$scenarios, f$baseline_name)
+  }
   
   # Collate and interpret function inputs so we know what to plot
   f = fig_properties(o, f, baseline$input, args)
@@ -225,10 +312,6 @@ plot_impact = function(o, fig_name, error_bars = TRUE, ...) {
   # If nothing to plot, return out
   if (f$n_metrics == 0)
     return()
-  
-  # A bit more work would be needed for this
-  if (f$plot_type == "group")
-    stop("Impact bar plots have not been properly tested for plotting groupings yet")
   
   # Valid values for summarise argument
   summarise_valid = c("sum", "mean", "min", "max")
@@ -255,15 +338,21 @@ plot_impact = function(o, fig_name, error_bars = TRUE, ...) {
     plot_list[[scenario]] = format_results(o, f, result)  # See postprocess.R
   }
   
+  # ---- Summarise results ----
+  
   # Get summarise function from user-defined string
-  summarise_fn = get(f$summarise)
-
+  #
+  # NOTE: As cumulative metrics have already been computed, we can just take
+  #       the last (ie the largest) value to avoid (very large) overcounting
+  if (f$summarise != "sum") summarise_fn = get(f$summarise)
+  if (f$summarise == "sum") summarise_fn = get("max")
+  
   # Summarise each metric over time for each scenario
   plot_df = rbindlist(plot_list) %>%
     mutate(metric   = recode(metric,   !!!f$metric_names), 
            scenario = recode(scenario, !!!f$scenario_names), 
            scenario = factor(scenario, levels = f$scenario_names)) %>%
-    group_by(scenario, metric) %>%
+    group_by(scenario, metric, group) %>%
     summarise(value = summarise_fn(value), 
               lower = summarise_fn(lower), 
               upper = summarise_fn(upper)) %>%
@@ -276,58 +365,189 @@ plot_impact = function(o, fig_name, error_bars = TRUE, ...) {
     baseline_name = f$scenario_names[[f$baseline_name]]
     
     # Difference betwen outcomes of each scenario and baseline
-    plot_df = group_by(plot_df, metric) %>%
-      mutate(value = value - value[scenario == baseline_name]) %>%
+    plot_df = group_by(plot_df, metric, group) %>%
+      mutate(value = value - value[scenario == baseline_name], 
+             lower = lower - lower[scenario == baseline_name], 
+             upper = upper - upper[scenario == baseline_name]) %>%
       filter(scenario != baseline_name) %>%
       as.data.table()
   }
   
-  # ---- Produce bar charts of total over time ----
-  
-  # Multiple scenarios
-  if (f$plot_type == "scenario") {
+  # Append scenario grouping details if plotting by scenario groups  
+  if (f$plot_type == "scenario_group") {
     
-    # Faceted bar chart
-    g = ggplot(plot_df, aes(x = scenario, y = value, ymin = lower, ymax = upper, fill = scenario)) + 
-      geom_bar(stat = "identity", show.legend = FALSE) + 
-      facet_wrap(~metric, scales = "free_y", labeller = label_wrap_gen(f$n_wrap))
+    # We need to apply additional factoring to retain correct order
+    levels_group = unique(f$scenario_groups$scenario_group)
+    levels_type  = unique(f$scenario_groups$scenario_type)
     
-    # Apply error bars if desired
-    if (error_bars == TRUE)
-      g = g + geom_errorbar(colour = "darkgrey", width = 0.25, size = 0.5)
-    
-    # Apply scenario colour scheme
-    g = g + scale_fill_manual(values = f$colours) + 
-      scale_y_continuous(labels = comma)
+    # Append scenario grouping details 
+    plot_df = plot_df %>% 
+      left_join(f$scenario_groups, by = "scenario") %>%
+      mutate(scenario       = factor(scenario,       levels = f$scenario_names), 
+             scenario_group = factor(scenario_group, levels = levels_group), 
+             scenario_type  = factor(scenario_type,  levels = levels_type))
   }
   
-  # One single scenario (perhaps relative to baseline)
-  if (f$plot_type == "metric") {
-    
-    # TODO: Work out the error bars...
-    
-    # Simple non-faceted bar chart
-    g = ggplot(plot_df, aes(x = metric, y = value, ymin = lower, ymax = upper, fill = metric)) + 
-      geom_bar(stat = "identity", position = position_dodge(), show.legend = FALSE)
-    # geom_errorbar(position = position_dodge(width = 0.9), 
-    #               colour = "darkgrey", width = 0.25, size = 0.5)
-    
-    # We've gone below zero (ie negative impact), so plot y = 0 reference line
-    if (any(plot_df$value < 0))
-      g = g + geom_hline(yintercept = 0)
-    
-    # Apply metric colour scheme and use descriptive scenario names
-    g = g + scale_fill_manual(values = f$colours) + 
-      scale_x_discrete(labels = f$metric_names) + 
-      scale_y_continuous(labels = comma)
+  # Do we have any values less than zero (possible if plotting relative to baseline)
+  below_zero = ifelse(any(plot_df$value < 0), TRUE, FALSE)
+  
+  # ---- Create basic figure ----
+  
+  # In most cases the plot_type difines the colour scheme
+  aes_by = list(x = f$plot_type, fill = f$plot_type)
+  
+  # Slightly different aesthetic configuration if stacking by groups
+  if (f$plot_type == "group" && (f$group_stack || f$group_dodge))
+    aes_by$x = "scenario"
+  
+  # Initiate ggplot structure
+  g = ggplot(plot_df, aes_string(x = aes_by$x, 
+                                 y = "value", 
+                                 ymin = "lower", 
+                                 ymax = "upper", 
+                                 fill = aes_by$fill))
+  
+  # Bars can be dodged
+  if (f$group_dodge == TRUE) {
+    bar_position = "dodge"
+    err_position = position_dodge(f$bar_width)
   }
+  
+  # ...  or stacked
+  if (f$group_dodge == FALSE) {
+    bar_position = "stack"
+    err_position = "identity"
+  }
+  
+  # Only need a legend if plotting by groups
+  plot_legend = ifelse(f$plot_type == "group" || f$bar_legend, TRUE, FALSE)
+  
+  # Plot impact bars
+  g = g + geom_bar(stat = "identity", 
+                   position = bar_position, 
+                   width    = f$bar_width,
+                   colour   = "black",
+                   show.legend = plot_legend)
+  
+  # Flip to horizontal bars for tornado plots
+  if (f$group_tornado == TRUE)
+    g = g + coord_flip()
+  
+  # Apply error bars if desired
+  if (f$uncertainty == TRUE)
+    g = g + geom_errorbar(position = err_position, size = 0.5, 
+                          colour = "darkgrey", width = 0.25)
+  
+  # Plot y = 0 reference line if we've gone below zero (ie negative impact)
+  if (below_zero == TRUE)
+    g = g + geom_hline(yintercept = 0)
+  
+  # ---- Generate facets ----
+  
+  # Possible to define custom faceting function, in the form of evaluable string
+  if (!is.null(f$facet_custom))
+    eval(parse(text = paste0("g = g + ", f$facet_custom)))
+  
+  # Most common use case is to use facet_wrap/grid based on what is being varied
+  if (is.null(f$facet_custom)) {
+    
+    # Metric plots (ie only one scenario) do not require facets
+    if (f$plot_type != "metric") {
+      
+      # For scenario grouping use metric x scenario_type grid
+      if (f$plot_type == "scenario_group" && !f$group_tornado) {
+        g = g + facet_grid(metric~scenario_type, scales = "free", labeller = f$label_grid)
+        
+        # For grouping use metric x scenario grid
+      } else if (f$plot_type == "group") {
+        
+        # If stacking or dodging by scenario, drop the scenario columns from the grid
+        if (f$group_stack || f$group_dodge) {
+          g = g + facet_grid(metric~., scales = "free", labeller = f$label_grid)
+          
+        } else {  # Otherwise apply the metric x scenario grid
+          g = g + facet_grid(metric~scenario, scales = "free", labeller = f$label_grid)
+        }
+        
+      } else { # Otherwise wrap by metric with all scenarios in each factet
+        g = g + facet_wrap(~metric, scales = "free", labeller = f$label_wrap)
+      }
+    }
+  }
+  
+  # Tag facets if desired
+  if (f$facet_labels == TRUE)
+    g = facet_labels(g, f)
+  
+  # ---- Figure aesthetics ----
+  
+  # If plotting by group, extract dictionary (age already considered)
+  if (f$plot_type == "group" && f$plot_by != "age") {
+    use_labels = baseline$input$dict[[f$plot_by]]
+    
+  } else {  # Otherwise no additional labels needed
+    use_labels = waiver()
+  }
+  
+  # Set colour scheme
+  g = g + scale_fill_manual(values = f$colours, labels = use_labels)
+  
+  # Prettify y axis - expand above by default, but only below if we have negative values
+  if (below_zero) expand_by = c(0.05, 0.05) else expand_by = c(0, 0.05)
+  g = g + scale_y_continuous(labels = comma, expand = expansion(mult = expand_by))
+  
+  # Prettify x axis by wrapping long lines
+  g = g + scale_x_discrete(labels = wrap_format(f$x_wrap))
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(strip.text  = element_text(size = f$fontsize[2]),
-          axis.text.y = element_text(size = f$fontsize[4]),
-          axis.text.x = element_text(size = f$fontsize[4], hjust = 1, angle = 50),
-          axis.title  = element_blank())
+    theme(plot.title   = element_text(size = f$fontsize[1], hjust = 0.5),
+          strip.text   = element_text(size = f$fontsize[2]),
+          axis.text.y  = element_text(size = f$fontsize[4]),
+          axis.text.x  = element_text(size = f$fontsize[4]),
+          axis.title   = element_blank(),
+          axis.line    = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
+          legend.text  = element_text(size = f$fontsize[3]),
+          legend.title = element_blank(),
+          legend.key   = element_blank(),
+          legend.position = "bottom", 
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
+          legend.box.background = element_rect())
+  
+  # Rotate x axis labels if desired
+  if (f$x_rotate != 0)
+    g = g + theme(axis.text.x = element_text(hjust = 1, angle = f$x_rotate))
+  
+  # Apply grid line for tornado plots only
+  if (f$group_tornado == TRUE)
+    g = g + theme(panel.grid.major.x = element_line(), 
+                  panel.grid.minor.x = element_line())
+  
+  # Remove tick labels if necessary (ie facets and legend tell the whole story)
+  if (plot_legend == TRUE) {
+    
+    # We generally remove x axis unless stacking or dodging by group
+    keep_xaxis1 = f$plot_type == "group" && (f$group_stack || f$group_dodge)
+    keep_xaxis2 = f$group_tornado == TRUE
+    
+    # Normal use case is to remove the x axis labels...
+    if (!keep_xaxis1 && !keep_xaxis2)
+      g = g + theme(axis.text.x  = element_blank(), 
+                    axis.ticks.x = element_blank())
+    
+    # ... but for tornado plots it's the y axis labels we want to erase
+    if (f$group_tornado == TRUE)
+      g = g + theme(axis.text.y  = element_blank(), 
+                    axis.ticks.y = element_blank())
+    
+    # Set appropriate number of legend rows
+    g = g + guides(fill = guide_legend(nrow  = f$legend_rows, 
+                                       byrow = f$legend_by_row))
+  }
   
   # Save these figures to file
   fig_save(o, g, fig_name)
@@ -340,10 +560,10 @@ plot_impact = function(o, fig_name, error_bars = TRUE, ...) {
 # ---------------------------------------------------------
 plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
   
-  # ---- Figure properties ----
-  
   # Collate key word arguments and override geom
   args = list_modify(list(...), plot_geom = "tile", override_colours = NA)
+  
+  # ---- Figure properties ----
   
   # Scenarios to plot
   f = fig_scenarios(o, args)
@@ -642,8 +862,8 @@ plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
   g = ggplot(plot_df, aes(x = x, y = y))
   
   # Set factets if more than 2 dimensions
-  if (n_dims == 3) g = g + facet_wrap(~w,  labeller = label_wrap_gen(f$n_wrap))
-  if (n_dims == 4) g = g + facet_grid(w~v, labeller = label_wrap_gen(f$n_wrap))
+  if (n_dims == 3) g = g + facet_wrap(~w,  labeller = f$label_wrap)
+  if (n_dims == 4) g = g + facet_grid(w~v, labeller = f$label_grid)
   
   # Normal use case: single colourbar
   if (is.null(f$multi_scale)) {
@@ -728,7 +948,7 @@ plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
   
   # Plot y label if desired
   if (!is.null(f$y_lab)) g = g + ylab(f$y_lab) else {
-    if (exists("dim_names")) g = g + ylab(dim_names[1])
+    if (exists("dim_names")) g = g + ylab(dim_names[2])
     else g = g + ylab(NULL)
   }
   
@@ -781,9 +1001,146 @@ plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
 } 
 
 # ---------------------------------------------------------
+# Plot number of infections for multiple scenarios
+# ---------------------------------------------------------
+plot_num_infections = function(o, fig_name, plot_file = NULL, ...) {
+  
+  # Collate key word arguments and override several values
+  args = list_modify(list(...), 
+                     plot_geom    = "hist", 
+                     plot_metrics = "n_infections", 
+                     plot_by      = "infections")
+  
+  # ---- Figure properties ----
+  
+  # Scenarios to plot
+  f = fig_scenarios(o, list(...))
+  
+  # Handle alternative functionality case - file fed in directly
+  if (!is.null(plot_file)) baseline = plot_file
+  else {
+    
+    # Otherwise load baseline file
+    baseline = try_load(o$pth$scenarios, f$baseline_name)
+  }
+  
+  # Collate and interpret function inputs so we know what to plot
+  f = fig_properties(o, f, baseline$input, args)
+  
+  # If nothing to plot, return out
+  if (f$n_metrics == 0)
+    return()
+  
+  # ---- Extract model predictions ----
+  
+  # Initiate plotting list
+  plot_list = list()
+  
+  # Loop through metrics to plot
+  for (scenario in f$scenarios) {
+    
+    # Load data file for for this scenario
+    if (scenario == f$baseline_name) result = baseline else {
+      result = try_load(o$pth$scenarios, scenario)
+    }
+    
+    # Format model output and store in list to be concatenated
+    plot_list[[scenario]] = format_results(o, f, result)  # See postprocess.R
+  }
+  
+  # Concatenate dataframes and convert to percentages for all scenarios
+  plot_df = rbindlist(plot_list) %>%
+    group_by(scenario) %>%
+    mutate(lower = lower / sum(value), 
+           upper = upper / sum(value), 
+           value = value / sum(value)) %>%
+    ungroup() %>%
+    mutate(group    = as.factor(paste0(group, " infections")),
+           metric   = recode(metric,   !!!f$metric_names), 
+           scenario = recode(scenario, !!!f$scenario_names), 
+           scenario = factor(scenario, levels = f$scenario_names)) %>%
+    as.data.table()
+  
+  # ---- Create basic figure ----
+  
+  # X axes is the complement of what we're faceting: scenarios or groups
+  x_aes = setdiff(c("scenario", "group"), f$facet_by)
+  
+  # Make sure one or teh other has been defined
+  if (length(x_aes) != 1)
+    stop("Argument 'facet_by' must be either 'scenario' or 'group'")
+  
+  # Initiate plot and aesthetics 
+  g = ggplot(plot_df, aes_string(x    = x_aes, 
+                                 y    = "value", 
+                                 ymin = "lower", 
+                                 ymax = "upper",
+                                 fill = "scenario"))
+  
+  # Only need a legend if plotting by groups
+  plot_legend = ifelse(f$facet_by == "group", TRUE, FALSE)
+  
+  # Plot histogram, we can use geom_bar here as we've already binned
+  g = g + geom_bar(stat = "identity", colour = "black", show.legend = plot_legend)
+  
+  # Apply error bars if desired
+  if (f$uncertainty == TRUE)
+    g = g + geom_errorbar(colour = "darkgrey", width = 0.25, size = 0.5)
+  
+  # Apply faceting function
+  g = g + facet_wrap(as.formula(paste("~", f$facet_by)), labeller = f$label_wrap)
+  
+  # Tag facets if desired
+  if (f$facet_labels == TRUE)
+    g = facet_labels(g, f)
+  
+  # ---- Figure aesthetics ----
+  
+  # Set colour scheme
+  g = g + scale_fill_manual(values = f$colours)
+  
+  # Prettify y axis - expand above by default
+  g = g + scale_y_continuous(labels = percent, expand = expansion(mult = c(0, 0.05)))
+  
+  # Prettify theme
+  g = g + theme_classic() + 
+    theme(plot.title   = element_text(size = f$fontsize[1], hjust = 0.5),
+          strip.text   = element_text(size = f$fontsize[2]),
+          axis.text.y  = element_text(size = f$fontsize[4]),
+          axis.text.x  = element_text(size = f$fontsize[4], hjust = 1, angle = 50),
+          axis.title   = element_blank(),
+          axis.line    = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
+          legend.text  = element_text(size = f$fontsize[3]),
+          legend.title = element_blank(),
+          legend.key   = element_blank(),
+          legend.position = "bottom",
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
+          legend.box.background = element_rect())
+  
+  # Remove tick labels if necessary (ie facets and legend tell the whole story)
+  if (plot_legend == TRUE) {
+    g = g + theme(axis.text.x  = element_blank(), 
+                  axis.ticks.x = element_blank())
+    
+    # Set appropriate number of legend rows
+    g = g + guides(fill = guide_legend(nrow  = f$legend_rows, 
+                                       byrow = f$legend_by_row))
+  }
+  
+  # Save these figures to file
+  fig_save(o, g, fig_name)
+  
+  return(g)
+}
+
+# ---------------------------------------------------------
 # Plot normalised disease state of population over time
 # ---------------------------------------------------------
-plot_disease_state = function(o, p, states) {
+plot_disease_state = function(o, fig_name, p, states) {
   
   # Convert list to dataframe and remove what we're not interested in
   state_df = states[p$model_states$all] %>%
@@ -816,21 +1173,21 @@ plot_disease_state = function(o, p, states) {
     theme_classic()
   
   # Save ggplot figure to file
-  fig_save(o, g1, "Population disease and care states - stacked area")
-  fig_save(o, g2, "Population disease and care states - line")
+  fig_save(o, g1, fig_name, "Stacked area")
+  fig_save(o, g2, fig_name, "Line")
 }
 
 # ---------------------------------------------------------
 # Plot performance of Gaussian process emulators
 # ---------------------------------------------------------
-plot_emulator = function(o) {
+plot_emulator = function(o, fig_name) {
   
   # Data types we're working with
   data_types = c("train", "test")
   
   # Corresponding colour scheme
   colours = c("skyblue1", "blue2")
-    
+  
   # Flag to remove extreme values
   remove_outliers = FALSE
   
@@ -839,7 +1196,7 @@ plot_emulator = function(o) {
   # Load emulator - throw an error if it doesn't exist explaining step 1 needs to run first
   err_msg = "Attempting to plot emulator performance but cannot find model emulator file"
   emulator = try_load(o$pth$fitting, "model_emulator", msg = err_msg) 
-
+  
   # Extract plotting dataframe
   plot_df = emulator$performance %>%
     mutate(group = factor(group, levels = data_types))
@@ -883,13 +1240,13 @@ plot_emulator = function(o) {
           panel.border = element_rect(colour = "black", fill = NA, size = 1))
   
   # Save figure to file
-  fig_save(o, g, "Emulator performance")
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
 # Plot optimisation performance and parameter-R_eff relationship
 # ---------------------------------------------------------
-plot_optimisation = function(o) {
+plot_optimisation = function(o, fig_name) {
   
   # Optimisation colour
   colour_optim = "dodgerblue"
@@ -1037,7 +1394,7 @@ plot_optimisation = function(o) {
           panel.border = element_rect(colour = "black", fill = NA, size = 1))
   
   # Save figure to file
-  fig_save(o, g, "Optimisation performance")
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
@@ -1292,7 +1649,7 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
 # ---------------------------------------------------------
 # Plot duration distributions 
 # ---------------------------------------------------------
-plot_durations = function(o, model_input) {
+plot_durations = function(o, fig_name, model_input) {
   
   # Number of samples from each distribution
   n_samples = 10000
@@ -1363,13 +1720,13 @@ plot_durations = function(o, model_input) {
           axis.text  = element_text(size = 12))
   
   # Save to file
-  fig_save(o, g, "Duration distributions")
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
 # Viral load profile since day of infection
 # ---------------------------------------------------------
-plot_viral_load = function(o, model_input) {
+plot_viral_load = function(o, fig_name, model_input) {
   
   # Number of days post infection to plot up until
   plot_days = 30
@@ -1471,32 +1828,63 @@ plot_viral_load = function(o, model_input) {
           legend.box.background = element_rect())
   
   # Do not save figure if input is trivial  
-  fig_save(o, g, "Viral load profile")
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
 # Plot vaccine and acquired immunity profiles
 # ---------------------------------------------------------
-plot_immunity_profiles = function(o, model_input) {
+plot_immunity_profiles = function(o, fig_name, model_input) {
   
   # Which vaccines to plot, along with a description
-  immunity_dict = c(vaccine  = "Immunity from vaccination", 
-                    acquired = "Immunity from natural infection")
+  immunity_dict = c(vaccine  = "Immunity from COVID-19 vaccination", 
+                    acquired = "Immunity from natural SARS-CoV-2 infection")
   
   # Colour scheme
   colours = c("navy", "goldenrod2")
   
+  # Data point colour
+  data_colour = "grey5"
+  
   # Number of days to plot (from first dose / recovery from infection)
   n_days = 600
+  
+  # ---- Vaccine efficacy data ----
+  
+  # TODO: Add source and explanation...
+  
+  # Dose 1
+  time_dose1 = c(1,  28)
+  eff_dose1  = c(40, 20)
+  
+  # Dose 2
+  time_dose2 = c(28, 168)
+  eff_dose2  = c(85, 30)
+  
+  # Booster dose
+  time_boost = c(168, 533)
+  eff_boost  = c(90,  23)
   
   # ---- Format data frames ----
   
   # Total number of days we can plot for
   n_days_total = model_input$n_days - model_input$n_days_init
   
+  # Extract effects for acquired and vaccine (and also booster)
+  acquired_effect = model_input$acquired_immunity
+  vaccine_effect  = model_input$vaccine$profile
+  booster_effect  = model_input$booster_profile
+  
+  # Time indices for vaccine booster
+  boost_idx1 = min(time_boost) : n_days_total
+  boost_idx2 = 1 : (n_days_total - min(time_boost) + 1)
+  
+  # Apply this booster effect
+  vaccine_effect[boost_idx1] = booster_effect[boost_idx2]
+  
   # Overall efficacy datatable
-  line_df = data.table(vaccine  = model_input$vaccine$profile, 
-                       acquired = model_input$acquired_immunity, 
+  line_df = data.table(vaccine  = vaccine_effect, 
+                       acquired = acquired_effect, 
                        day = 1 : n_days_total) %>%
     pivot_longer(cols = -day, names_to = "type") %>%
     arrange(type, day) %>%
@@ -1510,12 +1898,19 @@ plot_immunity_profiles = function(o, model_input) {
     mutate(value = ifelse(type == immunity_dict[["vaccine"]], 
                           value * model_input$vaccine$transmission_blocking, value))
   
+  # Dataframe for vaccine efficacy data points
+  data_df = data.table(day   = c(time_dose1, time_dose2, time_boost), 
+                       value = c(eff_dose1,  eff_dose2,  eff_boost), 
+                       type  = immunity_dict[["vaccine"]])
+  
   # ---- Produce plot ----
   
   # Plot the profiles over time along with maximum efficacies
   g = ggplot(area_df, aes(x = day, y = value, fill = type, colour = type)) + 
     geom_area(alpha = 0.5, size = 0) +
-    geom_line(data = line_df, size = 3) + 
+    geom_line(data = line_df, size = 2) + 
+    geom_point(data = data_df, show.legend = FALSE, 
+               colour = data_colour, size = 5) +
     facet_wrap(~type)
   
   # Use pre-defined colour scheme for distribution fills
@@ -1523,28 +1918,148 @@ plot_immunity_profiles = function(o, model_input) {
     scale_colour_manual(values = colours)
   
   # Set axis labels
-  g = g + xlab("Days since first dose / recovery from infection") + 
+  g = g + xlab("Days since recovery from infection / first dose") + 
     ylab("Immunity from severe disease (%)")
   
   # Set x axes to user-defined limits (see options.R)
   g = g + expand_limits(y = c(0, 100)) + 
-    scale_y_continuous(expand = expansion(mult = c(0, 0)), breaks = seq(0, 100, by = 10)) + 
-    scale_x_continuous(expand = expansion(mult = c(0, 0))) #, breaks = seq(0, n_days, by = 5))
+    scale_x_continuous(expand = expansion(mult = c(0.02, 0.02))) + 
+    scale_y_continuous(expand = expansion(mult = c(0.00, 0.00)), 
+                       breaks = seq(0, 100, by = 10))
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(strip.text   = element_text(size = 20),
-          axis.title   = element_text(size = 26),
-          axis.text    = element_text(size = 14),
-          legend.text  = element_text(size = 18),
-          legend.title = element_blank(),
-          legend.key   = element_blank(),
-          legend.position = "bottom", 
-          legend.key.height = unit(2, "lines"),
-          legend.box.background = element_rect())
+    theme(strip.text = element_text(size = 20),
+          axis.title = element_text(size = 20),
+          axis.text  = element_text(size = 14),
+          axis.line  = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          legend.position = "none",
+          strip.background = element_blank())
   
   # Save figure to file
-  fig_save(o, g, "Immunity profiles")
+  fig_save(o, g, fig_name)
+}
+
+# ---------------------------------------------------------
+# Plot seasonality profile best fit and bounds
+# ---------------------------------------------------------
+plot_seasonality_profile = function(o, fig_name, labels = NULL, colours = NULL, ...) {
+  
+  # Extract model inputs
+  model_inputs = list(...)
+  
+  # Number of models provided
+  n_models = length(model_inputs)
+  
+  # Preallocate list for seasonality profiles
+  season_list = list()
+  
+  # Loop through models
+  for (i in 1 : n_models) {
+    this_model = model_inputs[[i]]
+    
+    # Extract seasonality profile
+    season_list[[i]] = data.table(
+      date  = 1 : this_model$n_days,
+      id    = this_model$.id, 
+      name  = this_model$.name, 
+      value = this_model$seasonality)
+  }
+  
+  # Bind into single datatable
+  season_df = rbindlist(season_list)
+  
+  # If colours are not provided, use default palette
+  if (is.null(colours)) {
+    colours = scales::hue_pal()(n_models)
+    
+  } else { # If colours are provided...
+    
+    # ... check appropriate number of them
+    if (length(colours) != n_models)
+      stop("Inconsistent number of colours provided")
+  }
+  
+  # If labels not provided, use scenario names
+  if (is.null(labels)) {
+    labels = unique(season_df$name)
+    
+  } else { # If labels are provided...
+    
+    # ... check appropriate number of them
+    if (length(labels) != n_models)
+      stop("Inconsistent number of labels provided")
+  }
+  
+  # Construct dictionary using default or custom labels
+  label_dict = setNames(labels, unique(season_df$id))
+  
+  # Recode names if need be (could be a trivial step)
+  plot_df = season_df %>%
+    mutate(name = recode(id, !!!label_dict), 
+           name = factor(name, label_dict), 
+           metric = "Seasonal forcing on SARS-CoV-2 infectiousness per contact")
+  
+  # Minimum value (ie peak summer) for all curves
+  threshold_df = plot_df %>%
+    group_by(id, name, metric) %>%
+    mutate(value = min(value)) %>%
+    as.data.table()
+  
+  # Text to accompany minimum lines
+  text_df = plot_df %>%
+    group_by(id, name, metric) %>%
+    slice_min(value, with_ties = FALSE) %>%
+    mutate(text = paste("Peak summer\n effect:", value)) %>%
+    as.data.table()
+  
+  # Plot all seasonality profiles provided
+  g = ggplot(plot_df) + 
+    aes(x = date, y = value, color = name) + 
+    geom_line(size = 3) + 
+    geom_hline(yintercept = 1, colour = "black", linetype = "dashed") + 
+    facet_wrap(~metric)
+  
+  # Plot dashed curves to highlight peak summer
+  g = g + geom_line(data = threshold_df, linetype = "dashed")
+  
+  # Text to accompany peak summer threshold lines
+  g = g + geom_text(data = text_df, aes(label = text), 
+                    hjust = 0.5, vjust = 1, nudge_y = -0.01)
+  
+  # Set colour scheme (could be trivial step)
+  g = g + scale_colour_manual(values = colours)
+  
+  # Prettify axes
+  g = g + expand_limits(y = c(0, 1)) + 
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) + 
+    scale_x_continuous(expand = expansion(mult = c(0, 0)))
+  
+  # Prettify theme
+  g = g + theme_classic() + 
+    theme(text         = element_text(size = 14), 
+          strip.text   = element_text(size = 24),
+          axis.title   = element_blank(),
+          axis.text    = element_text(size = 14),
+          axis.line    = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
+          legend.text  = element_text(size = 16),
+          legend.title = element_blank(),
+          legend.key   = element_blank(),
+          legend.position = "right", 
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
+          legend.box.background = element_rect())
+  
+  # Do not save figure if input is trivial  
+  if (!is.null(fig_name))
+    fig_save(o, g, fig_name)
+  
+  return(g)
 }
 
 # ---------------------------------------------------------
@@ -1629,10 +2144,20 @@ fig_scenarios = function(o, args) {
   # Overwrite defaults for user-defined items
   p[names(args)] = args
   
-  # ---- Figure scenarios ----
-  
   # Initiate figure list
   f = list(plot_baseline = p$plot_baseline)
+  
+  # ---- Figure scenarios ----
+  
+  # Check whether scenarios are defined as a matrix
+  if (is.matrix(p$scenarios)) {
+    
+    # Interpreted as scenario groupings - store these groupings
+    p$scenario_matrix = p$scenarios
+    
+    # Flatten scenarios into a vector
+    p$scenarios = as.vector(p$scenarios)
+  }
   
   # Check whether we actually want to plot a baseline
   if (f$plot_baseline == TRUE) {
@@ -1640,11 +2165,18 @@ fig_scenarios = function(o, args) {
     # Name of baseline (either default or an alternative)
     if (is.null(p$alt_baseline)) f$baseline_name = "baseline" else f$baseline_name = p$alt_baseline
     
+    # If this baseline is already within the scenarios, do not plot it twice
+    f$plot_baseline = !f$baseline_name %in% p$scenarios
+    
   } else {
     
     # No baseline - use a pseudo
     f$baseline_name = p$scenarios[1]
     p$scenarios     = p$scenarios[-1]
+    
+    # Sanity check that a baseline is provided if plotting relative to that baseline
+    if (p$relative == TRUE)
+      stop("You must provide a baseline if 'relative' is set to TRUE")
   }
   
   # Append all non-baseline scenarios to scenario vector
@@ -1667,12 +2199,10 @@ fig_scenarios = function(o, args) {
   if (!is.null(args$scenario_name_fn))
     f$scenario_names = args$scenario_name_fn(f$scenario_names)
   
+  # ---- Relative to a baseline ----
+  
   # Do we want to plot difference between scenarios and baseline
   if (p$relative == TRUE) {
-    
-    # Sanity check that a baseline is provided
-    if (f$plot_baseline == FALSE)
-      stop("You must provide a baseline if 'relative' is set to TRUE")
     
     # Reduce number of scenarios by one as we won't plot baseline explictly
     f$n_scenarios = f$n_scenarios - 1
@@ -1680,24 +2210,67 @@ fig_scenarios = function(o, args) {
     # Sanity check that not only a baseline is provided
     if (f$n_scenarios == 0)
       stop("To use 'relative' you must provide some alternative scenarios and/or strategies")
+    
+    # We won't be plotting the baseline in this case
+    f$plot_baseline = FALSE
   }
-  
-  # Store flag so outcomes can be relatively calculated if needed
-  f$relative = p$relative
   
   # Throw an error if no scenarios identified
   if (f$n_scenarios == 0)
     stop("No scenarios identified - plot a baseline and/or scenarios and/or strategies")
   
+  # ---- Scenario groupings ----
+  
+  # Check whether scenarios should be grouped
+  if (!is.null(p$scenario_matrix)) {
+    
+    # Construct function to append baseline details (if needed)
+    add_baseline_fn = function(x) {
+      
+      # Normal use case: a baseline for each scenario_group
+      if (!p$aes_reverse)
+        y = expand_grid(scenario_group = unique(x$scenario_group),
+                        scenario_type  = x$scenario_type[1],
+                        scenario_id    = f$baseline_name)
+      
+      # Alternative use case: baseline in it's own facet
+      if (p$aes_reverse)
+        y = expand_grid(scenario_group = "Baseline",
+                        scenario_type  = "Baseline",
+                        scenario_id    = f$baseline_name)
+      
+      # Bind with existing dataframe
+      z = rbind(y, x)
+    }
+    
+    # Generate a dataframe describing the groupings
+    f$scenario_groups = as.data.table(p$scenario_matrix) %>%
+      mutate(scenario_group = rownames(p$scenario_matrix)) %>%
+      pivot_longer(cols = -scenario_group, 
+                   names_to  = "scenario_type", 
+                   values_to = "scenario_id") %>%
+      {if (f$plot_baseline) add_baseline_fn(.) else .} %>%
+      left_join(data.table(scenario_id = f$scenarios, 
+                           scenario    = f$scenario_names), 
+                by = "scenario_id") %>%
+      select(scenario, scenario_type, scenario_group) %>%
+      as.data.table()
+    
+    # Store the number of groups for easy referencing
+    f$n_scenario_groups = c(nrow(p$scenario_matrix), 
+                            ncol(p$scenario_matrix))
+  }
+  
   # Do we have multiple scenarios to plot?
   if (f$n_scenarios > 1) {
     
-    # If so, we can't also have multiple groups on the same plot
-    # if (!is.null(p$plot_by))
-    #   stop("You cannot plot groupings for multiple scenarios at once")
-    
-    # We'll be plotting by multiple scenarios
-    f$plot_type = "scenario"
+    # They can either be grouped...
+    if (!is.null(p$scenario_matrix)) {
+      f$plot_type = "scenario_group"
+      
+    } else {  # ... or not
+      f$plot_type = "scenario"
+    }
   }
   
   return(f)
@@ -1718,26 +2291,49 @@ fig_properties = function(o, f, yaml, args) {
   if (is.null(p$plot_metrics)) p$metrics = yaml$metrics$df$metric
   else p$metrics = p$plot_metrics
   
-  # Not all metrics can be plotted cumulatively
-  if (p$cumulative == TRUE) {
+  # Metrics suitable for cumulative, aggregation, and coverages plots 
+  metrics_cum = yaml$metrics$df[cumulative == TRUE, metric]
+  metrics_agg = yaml$metrics$df[aggregate == TRUE,  metric]
+  metrics_cov = yaml$metrics$df[coverage == TRUE,   metric]
+  
+  # Two cases where we'll be plotting cumulatively
+  # 
+  # Case 1: User specifically asks for cumulative metrics
+  # Case 2: Bar plots that sum metrics over time
+  plot_cumulative = p$cumulative == TRUE ||
+    p$plot_geom == "bar" && p$summarise == "sum"
+  
+  # If plotting cumulatively, filter out unsuitable metrics
+  if (plot_cumulative == TRUE) {
+    p$metrics = intersect(p$metrics, metrics_cum)
     
-    # Subset metrics to only those suitable for cumulative plotting
-    cumulative_df = filter(yaml$metrics$df, cumulative == TRUE)
-    p$metrics     = intersect(p$metrics, cumulative_df$metric)
+    # Also ensure flag is set, important for post processing
+    p$cumulative = TRUE
   }
+  
+  # Some metrics can only be plotted as distributions
+  metrics_dist = yaml$metrics$df[temporal == FALSE, metric]
+  
+  # If plotting histograms, filter out unsuitable metrics
+  if (p$plot_geom == "hist")
+    p$metrics = intersect(p$metrics, metrics_dist)
   
   # If no grouping defined we'll be ploting by multiple metrics
   if (is.null(p$plot_by)) {
     
     # For some metrics it is nonsensical to aggregate
-    aggregate_df = filter(yaml$metrics$df, aggregate == TRUE)
-    p$metrics    = intersect(p$metrics, aggregate_df$metric)
+    p$metrics = intersect(p$metrics, c(metrics_agg, metrics_cov))
     
     # Colours will be by metric
     if (f$n_scenarios == 1)
       f$plot_type = "metric"
     
   } else {
+    
+    # Throw an error if trying to use scenario groupings too
+    if (identical(f$plot_type, "scenario_group"))
+      stop("You cannot use 'plot_by' with scenario grouping: ", 
+           "provide scenarios as a vector to use 'plot_by'")
     
     # We'll be plotting by the grouping defined
     f$plot_type = "group"
@@ -1748,6 +2344,10 @@ fig_properties = function(o, f, yaml, args) {
     
     # Remove any metrics that do not have this grouping
     p$metrics = intersect(p$metrics, grouping_metrics)
+    
+    # Do not plot coverages if stacking plots
+    if (p$plot_geom != "line")
+      p$metrics = setdiff(p$metrics, metrics_cov)
   }
   
   # Warn the user if there are no metrics left to plot
@@ -1767,11 +2367,28 @@ fig_properties = function(o, f, yaml, args) {
   # ---- Metric descriptions ----
   
   # Metric descriptions can be different if plotting cumulative results
-  if (p$cumulative == TRUE) metric_dict = yaml$dict$cumulative 
+  if (plot_cumulative) metric_dict = yaml$dict$cumulative 
   else metric_dict = yaml$dict$metric
   
   # Apply and subset the dictionary
   p$metric_names = metric_dict[p$metrics]
+  
+  # ---- Group stacking ----
+  
+  # Tornado plots are a special case of impact bars
+  if (p$group_tornado == TRUE) {
+    
+    # Throw an error if not plotting relative to some baseline
+    if (p$relative == FALSE)
+      stop("Tornado plots should be used for sensitivity analyses: set 'relative = TRUE'")
+    
+    # Ideally a matrix of scenarios is defined, although this shouldn't be an error
+    if (f$plot_type != "scenario_group")
+      warning("Tornado plots are most effective when used with a matrix of scenarios")
+    
+    # Ensure groups are being stacked
+    p$group_stack = TRUE
+  }
   
   # ---- Colours ----
   
@@ -1779,13 +2396,37 @@ fig_properties = function(o, f, yaml, args) {
   if (!is.null(p$override_colours) && is.na(p$override_colours)) p$colours = NA
   else {
     
-    # Scenario colours: redefine on each function call
-    if (f$plot_type == "scenario") {
-      n_colours = f$n_scenarios
+    # Scenario colours: one per scenario, plus baseline if required
+    if (f$plot_type == "scenario" || p$plot_geom == "hist") {
       
-      # Create colour vector from palette, considering baseline if required
-      if (p$plot_baseline == FALSE) p$colours = colour_scheme(o$palette_scenario, n = n_colours)
-      else p$colours = c(o$baseline_colour, colour_scheme(o$palette_scenario, n = n_colours - 1))
+      # One colour per scenario
+      n_colours = f$n_scenarios 
+      
+      # Create colour vector from palette
+      p$colours = colour_scheme(o$palette_scenario, n = n_colours)
+      
+      # Append baseline colour if required
+      if (f$plot_baseline == TRUE) 
+        p$colours = c(o$baseline_colour, p$colours[-n_colours])
+    }
+    
+    # Scenario group colours: repeat colours for each scenario group
+    if (f$plot_type == "scenario_group") {
+      
+      # Default or reverse aesthetic ordering (colours-linetype or linetype-colours)
+      if (!p$aes_reverse) n_colours = f$n_scenario_groups[1]  # One colour per group
+      if (p$aes_reverse)  n_colours = f$n_scenario_groups[2]  # One colour per type
+      
+      # Create colour vector from palette
+      p$colours = colour_scheme(o$palette_scenario, n = n_colours)
+      
+      # Append baseline colour if required
+      if (f$plot_baseline == TRUE) {
+        p$colours = c(o$baseline_colour, p$colours)
+        
+        # Increment number of colours required
+        n_colours = n_colours + 1
+      }
     }
     
     # Metric colours: a colour for each possible metric, indexed if not plotting everything
@@ -1800,7 +2441,7 @@ fig_properties = function(o, f, yaml, args) {
     }
     
     # Colours by group depends on number in grouping
-    if (f$plot_type == "group") {
+    if (f$plot_type == "group" && p$plot_geom != "hist") {
       
       # Number in this grouping
       n_colours = length(yaml$count[[p$plot_by]])
@@ -1828,6 +2469,38 @@ fig_properties = function(o, f, yaml, args) {
       p$colours[!is.na(p$override_colours)] = na.omit(p$override_colours)
     }
   }
+  
+  # Special case for fill colours: repeat when grouping scenarios
+  if (f$plot_type == "scenario_group") {
+    n_rep = f$n_scenario_groups[2]
+    
+    # If no baseline, simply repeat n_rep times
+    if (f$plot_baseline == FALSE)
+      p$colours = rep(p$colours, times = n_rep)
+    
+    # If a baseline, all except for this should be repeated
+    if (f$plot_baseline == TRUE)
+      p$colours = c(p$colours[1], rep(p$colours[-1], times = n_rep))
+  }
+  
+  # ---- Facets ----
+  
+  # If only one wrap value given, x and y strips use the same value
+  if (length(p$n_wrap) == 1)
+    p$n_wrap = c(p$n_wrap, p$n_wrap)
+  
+  # Shorthand for facet_wrap strip wrapping
+  p$label_wrap = label_wrap_gen(p$n_wrap[1])
+  
+  # Shorthand for facet_grid strip wrapping
+  #
+  # NOTE: This can handle different values for x and y strips
+  p$label_grid = labeller(.cols = label_wrap_gen(p$n_wrap[1]), 
+                          .rows = label_wrap_gen(p$n_wrap[2]))
+  
+  # If facet_custom is defined, ensure it is a string
+  if (!is.null(f$facet_custom) && !is.character(f$facet_custom))
+    stop("Argument 'facet_custom' must be an evaluable string")
   
   # ---- Plotting days or dates ----
   
@@ -1897,27 +2570,44 @@ fig_defaults = function() {
   
   # Define default values
   defaults = list(
-    plot_geom     = "line",    # GG plot geom
-    summarise     = "sum",     # Summarise data function for bar and tile plots
-    plot_baseline = TRUE,      # Flag for plotting a baseline
-    alt_baseline  = NULL,      # Define some alternative 'baseline'
-    scenarios     = NULL,      # Vector of alternative scenario names
-    relative      = FALSE,     # Outcomes plotted relative to baseline
-    plot_metrics  = NULL,      # Vector of model metrics to plot (all possible metrics by default)
-    plot_by       = NULL,      # Grouping to plot by (eg age or variant)
-    group_idx     = 1,         # For plots that can only show one group, which group
-    person_days   = 1e5,       # Metrics per `person_days` per day
-    cumulative    = FALSE,     # Plot cumulative outcomes
-    plot_from     = 1,         # First time point for plotting
-    date_from     = NULL,      # Convert days to dates starting from date_from
-    plot_to       = Inf,       # Cut plotting after so many days
-    expand_limit  = 1,         # Set a minimum for y_max for all metrics
-    legend_rows   = 2,         # Number of legend rows
-    facet_rows    = NULL,      # Number of facet rows for facet_wrap plots
-    n_wrap        = 20,        # Number of chars per strip line in grid plots
-    override_colours  = NULL,  # Vector of custom colours
-    override_fontsize = NULL,  # Vector of custom font sizes 
-    scenario_name_fn  = NULL)
+    plot_geom     = "line",      # GG plot geom
+    summarise     = "sum",       # Summarise data function for bar and tile plots
+    plot_baseline = TRUE,        # Flag for plotting a baseline
+    alt_baseline  = NULL,        # Define some alternative 'baseline'
+    scenarios     = NULL,        # Alternative scenario names (a vector or matrix)
+    relative      = FALSE,       # Outcomes plotted relative to baseline
+    aes_reverse   = FALSE,       # Reverse default grouped scenarios aesthetics (colour-linetype) 
+    aes_linetype  = TRUE,        # Whether to differentiate grouped scenarios by dashed lines
+    plot_metrics  = NULL,        # Vector of model metrics to plot (all possible metrics by default)
+    plot_by       = NULL,        # Grouping to plot by (eg age or variant)
+    group_stack   = TRUE,        # Impact bars stacked by group (alternative is side by side)
+    group_dodge   = FALSE,       # Impact bars unstacked, but grouped by scenario on single x axis (overrules group_stack)
+    group_tornado = FALSE,       # Impact bars as a tornado plot (use with a matrix of scenarios and 'relative')
+    group_idx     = 1,           # For plots that can only show one group, which group
+    person_days   = 1e5,         # Metrics per `person_days` per day
+    cumulative    = FALSE,       # Plot cumulative outcomes
+    uncertainty   = TRUE,        # Plot uncertainty bounds (error bars for geom_bar)
+    plot_from     = 1,           # First time point for plotting
+    date_from     = NULL,        # Convert days to dates starting from date_from
+    date_labels   = "%b %y",     # Date label format (month-year: "%b %y", day-month: "%d %b")
+    date_breaks   = "1 month",   # Distance between date labels on x axis for temporal plots
+    plot_to       = Inf,         # Cut plotting after so many days
+    expand_limit  = 1,           # Set a minimum for y_max for all metrics
+    bar_width     = 0.9,         # Bar width of impact bars 
+    bar_legend    = FALSE,       # Use a legend (rather than tick labels) to define scenarios in bar plots
+    legend_rows   = 2,           # Number of legend rows
+    legend_by_row = TRUE,        # Order legend entries by row (rather than by column)
+    facet_rows    = NULL,        # Number of facet rows for facet_wrap plots
+    facet_custom  = NULL,        # Define custom facets as evaluable string, eg using ggh4x::facet_grid2
+    facet_by      = "scenario",  # Facet by either 'scenario' or 'group' for number of infection histograms
+    facet_labels  = FALSE,        # Flag for whether to tag/label each facet with a capital letter
+    n_wrap        = 20,          # Number of chars per line per strip (grid_plots can take 2nd value)
+    x_wrap        = 30,          # Number of chars per line per x axis label in relevant bar plots
+    x_rotate      = 50,          # Degrees to rotate x axis labels in relevant bar plots
+    line_width    = 2,           # Line thickness for geom_line plots
+    override_colours  = NULL,    # Vector of custom colours
+    override_fontsize = NULL,    # Vector of custom font sizes 
+    scenario_name_fn  = NULL)    # Custom scenario naming function
   
   # Define default values specfic for heatmaps
   defaults_heat = list(
@@ -1967,8 +2657,14 @@ fig_save = function(o, g, ..., path = "figures", width = o$save_width, height = 
   for (fig_format in o$figure_format) {
     save_pth  = paste0(o$pth[[path]], save_name, ".", fig_format)
     
-    # Save figure (size specified in results.R)
-    ggsave(save_pth, plot = g, width = width, height = height)
+    # Save figure (size specified in options.R)
+    ggsave(save_pth, 
+           plot   = g, 
+           device = fig_format, 
+           dpi    = o$save_resolution, 
+           width  = width, 
+           height = height, 
+           units  = o$save_units)
   }
 }
 

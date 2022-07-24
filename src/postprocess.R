@@ -6,7 +6,7 @@
 ###########################################################
 
 # ---------------------------------------------------------
-# Format model outcomes ready for plotting
+# Calculate effective reproduction number
 # ---------------------------------------------------------
 calculate_Reff = function(incidence, si, r_eff_window) {
   
@@ -55,108 +55,143 @@ calculate_Reff = function(incidence, si, r_eff_window) {
 }
 
 # ---------------------------------------------------------
+# Aggregate groupings for appropriate metrics
+# ---------------------------------------------------------
+aggregate_results = function(input, raw_output) {
+  
+  # NOTE: This is the first step when processing raw results.
+  #       It is in a seperate function because we may want to
+  #       only aggregate, and not summarise raw results.
+  
+  # Metrics that can be aggregated
+  agg_metrics = input$metrics$df[aggregate == TRUE,  metric]
+  
+  # Need to aggregate grouped metrics: get first grouping per metric to avoid double counting
+  first_grouping = raw_output %>% 
+    filter(metric %in% agg_metrics) %>% 
+    select(metric, grouping) %>%
+    unique() %>%
+    filter(!grouping %in% c("none", "na")) %>%
+    group_by(metric) %>%
+    slice(1)
+  
+  # Aggregate values of first grouping
+  agg_df = first_grouping %>%
+    left_join(raw_output,
+              by = c("metric", "grouping")) %>%
+    group_by(metric, date, scenario, seed) %>%
+    summarise(value = sum(value)) %>%
+    mutate(grouping = "none",
+           group    = NA) %>%
+    bind_rows(raw_output) %>%
+    as.data.table()
+  
+  return(agg_df)
+}
+
+# ---------------------------------------------------------
+# Post process raw model output and append to 'result' list
+# ---------------------------------------------------------
+process_results = function(result, raw_output) {
+  
+  # Aggregate groupings for appropriate metrics
+  agg_df = aggregate_results(result$input, raw_output)
+  
+  # Create key summary statistics across seeds
+  result$output = agg_df %>% 
+    group_by(date, metric, grouping, group, scenario) %>% 
+    summarise(mean   = mean(value),
+              median = quantile(value, 0.5, na.rm = TRUE),
+              lower  = quantile(value, o$quantiles[1], na.rm = TRUE),
+              upper  = quantile(value, o$quantiles[2], na.rm = TRUE)) %>% 
+    arrange(metric, grouping, group, date) %>% 
+    as.data.table()
+  
+  # Metrics that can be cumulatively summed
+  cum_metrics = result$input$metrics$df[cumulative == TRUE, metric]
+  
+  # Cumulatively sum all values then compute quantiles across seeds
+  result$cum_output = agg_df %>%
+    filter(metric %in% cum_metrics) %>%
+    group_by(metric, grouping, group, scenario, seed) %>%
+    mutate(cum_value = cumsum(value)) %>%  
+    group_by(date, metric, grouping, group, scenario) %>% 
+    summarise(mean   = mean(cum_value),
+              median = quantile(cum_value, 0.5),
+              lower  = quantile(cum_value, o$quantiles[1]),
+              upper  = quantile(cum_value, o$quantiles[2])) %>% 
+    arrange(metric, grouping, group, date) %>% 
+    as.data.table()
+  
+  return(result)
+}
+
+# ---------------------------------------------------------
 # Format model outcomes ready for plotting
 # ---------------------------------------------------------
 format_results = function(o, f, results) {
   
-  # Check if we're plotting a single simulation
-  if ("value" %in% names(results$output)) {
-    
-    # If so, append trivial bounds
-    output_df = results$output %>%
-      mutate(lower = value, 
-             upper = value, .after = value)
-    
-  } else {  # Otherwise select summary statistic of choice
-    output_df = results$output %>%
-      rename(value = o$best_estimate_simulation)
-  }
+  # Which results df to load depends on cumulative flag
+  which_output = ifelse(f$cumulative, "cum_output", "output")
   
   # Reduce model output down to what we're interested in
-  model_df = output_df %>%
-    filter(date >= f$plot_from, 
-           date <= f$plot_to, 
+  output_df = results[[which_output]] %>%
+    select(date, metric, grouping, group, scenario, 
+           value = o$best_estimate_simulation, lower, upper) %>%
+    filter(is.na(date) | date >= f$plot_from, 
+           is.na(date) | date <= f$plot_to, 
            metric %in% f$metrics, 
-           !is.na(value)) %>% 
-    mutate(metric = factor(metric, levels = f$metrics))
+           !is.na(value))
   
-  # ---- Scale metrics per n person days ----
+  # ---- Do scaling and convert proportion to percentage ----
+  
+  # Subset of metric details: coverages and scaled metrics
+  metric_df = results$input$metrics$df %>%
+    select(metric, scaled, coverage)
   
   # Scaler required (based on number simulated)
   scaler = f$person_days / results$input$population_size
   
-  # Vector of metrics to be scaled
-  scale_metrics = results$input$metrics$df %>%
-    filter(scaled == TRUE) %>%
-    pull(metric)
+  # Variables that need to be mutated
+  vars = c("value", "lower", "upper")
   
-  # Row indices of model_df to be scaled
-  scale_idx = model_df$metric %in% scale_metrics
+  # For appropriate metrics, apply scaler and multiple by 100 
+  output_df = output_df %>%
+    left_join(metric_df, by = "metric") %>%
+    mutate(across(all_of(vars), function(x) ifelse(scaled, x * scaler, x)), 
+           across(all_of(vars), function(x) ifelse(coverage, x * 100, x))) %>%
+    select(-scaled, -coverage)
   
-  # Apply this scaler to the relevant metrics
-  model_df[scale_idx, ] = model_df[scale_idx, ] %>%
-    mutate(value = value * scaler, value, 
-           lower = lower * scaler, lower, 
-           upper = upper * scaler, upper)
-  
-  # ---- Aggregate if desired ----
+  # ---- Select appropriate grouping ----
   
   # Plotting by some disaggregation
   if (f$plot_type == "group") {
     
+    # Filter for only this grouping
+    output_df = output_df[grouping == f$plot_by, ]
+    
     # Levels of factors
     group_levels = results$input$count[[f$plot_by]]
-    
-    # Filter for only such results and convert to factors
-    model_df = model_df %>%
-      filter(grouping == f$plot_by) %>% 
-      mutate(group = factor(group, levels = group_levels)) %>% 
-      select(-grouping)
+    output_df[, group := factor(group, group_levels)]
     
     # Plotting by age is a special case - group by age classification
     if (f$plot_by == "age")
-      model_df = group_ages(o, model_df)
+      output_df = group_ages(o, output_df)
   }
   
   # No grouping - we want to remove all disaggregations
-  if (f$plot_type != "group") {
-    
-    # Summarise first grouping per metric to avoid double counting
-    first_grouping = model_df %>% 
-      select(metric, grouping) %>%
-      unique() %>%
-      group_by(metric) %>%
-      slice(1)
-    
-    # Sum across the groupings for each metric
-    model_df = left_join(first_grouping, model_df, 
-                         by = c("metric", "grouping")) %>%
-      group_by(date, metric, scenario) %>%
-      summarise(value = sum(value), 
-                lower = sum(lower),
-                upper = sum(upper)) %>%
-      mutate(group = NA)
-  }
+  if (f$plot_type != "group")
+    output_df = output_df[is.na(group), ]
   
   # ---- Format output ----
   
-  # Check cumulative flag
-  if (f$cumulative == TRUE) {
-    
-    # Cumulatively sum over time if requested
-    model_df = model_df %>% 
-      group_by(metric, scenario, group) %>%
-      mutate(value = cumsum(value), 
-             lower = cumsum(lower), 
-             upper = cumsum(upper))
-  }
-  
   # Final formatting touches
-  model_df = as.data.table(model_df) %>%
+  output_df = output_df %>%
     select(date, metric, group, value, lower, upper, scenario) %>%
-    arrange(scenario, metric, group, date)
+    arrange(scenario, metric, group, date) %>% 
+    mutate(metric = factor(metric, levels = f$metrics))
   
-  return(model_df)
+  return(output_df)
 }
 
 # ---------------------------------------------------------

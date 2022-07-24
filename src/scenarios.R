@@ -121,7 +121,7 @@ check_fit = function(o) {
   baseline = parse_yaml(o, scenario = "baseline")
   
   # Remove items that it is ok to change (see o$fit_changeable_items)
-  fit_input = list.remove(fit_result$fit_input, o$fit_changeable_items)
+  fit_input = list.remove(fit_result$input, o$fit_changeable_items)
   baseline_input = list.remove(baseline$parsed, o$fit_changeable_items)
 
   # Are these two lists identical - if yes we are done here
@@ -191,7 +191,7 @@ check_existing = function(o, sim_df) {
       message("  > Checking consistency of YAML files")
       
       # Load fitted parameters - we'll need to rerun if these have changed
-      fit_result = try_load(o$pth$fitting, "fit_result")$fit_output
+      fit_result = try_load(o$pth$fitting, "fit_result")$result
       
       # Assess each scenario that already exists
       for (scenario_exist in unique(sims_exist$scenario)) {
