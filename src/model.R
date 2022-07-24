@@ -51,9 +51,9 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
   ppl_df = initiate_epidemic(o, p, ppl_df)
   
   # Calculate number of people in each vaccine prioirty group outside of main loop
-  n_vaccine_group = ppl_df[, .N, by = vaccine_group] %>% 
-    left_join(p$vaccine$groups[, .(id, priority)], 
-              by = c("vaccine_group" = "id")) %>% 
+  n_priority_group = ppl_df[, .N, by = priority_group] %>% 
+    left_join(p$priority_groups[, .(id, priority)], 
+              by = c("priority_group" = "id")) %>% 
     arrange(priority)
   
   # Group certain states for easy access and readability
@@ -284,19 +284,23 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
     
     # ---- Vaccination ----
     
-    # Vaccinate priority groups according to p$vaccine_coverage
-    ppl = fn_vaccinate(p, ppl, n_vaccine_group, i)
+    # Vaccinate eligible priority groups according
+    ppl = fn_vaccinate(p, ppl, n_priority_group, i)
     
-    # Store the number of people vaccinated today and in total
-    m = update_output(m, p, i, "n_vaccinated",     ppl[days_vaccinated == 0, ])
-    m = update_output(m, p, i, "total_vaccinated", ppl[days_vaccinated >= 0, ])
+    # Handle all vaccine-related metrics (there are a few!) in seperate function for readability
+    m = fn_vaccine_count(m, p, ppl, i)
     
-    # People receiving doses: first dose, subsequent doses, and booster doses
-    vaccine_dose = ppl[days_vaccinated %in% c(0, p$vaccine$subsequent_dose_days), ]
-    booster_dose = ppl[days_booster == 0, ]
+    # ---- Treatment ----
     
-    # Store number of vaccine doses administered in this time step
-    m = update_output(m, p, i, "n_doses", rbind(vaccine_dose, booster_dose))
+    # Treat eligible infected cases
+    ppl = fn_treatment(p, ppl, i)
+    
+    # Store total number of those diagnosed this time step
+    m = update_output(m, p, i, "treated", ppl[treatment_date == i, ])
+    
+    # We may want to be more complete with our treatment metrics...
+    # m = update_output(m, p, i, "treat_success", ppl[treatment_date == i && disease_state == "susc", ])
+    # m = update_output(m, p, i, "treat_failure", ppl[treatment_date == i && disease_state != "susc", ])
     
     # ---- Other updates ----
     
@@ -349,11 +353,12 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
     close(pb)
   
   # Produce plot of disease and care states over time
-  if (do_plot) plot_disease_state(o, p, states)
+  if (do_plot == TRUE)
+    plot_disease_state(o, p, "Population disease and care states", states)
   
   # Calculate effective reproduction number from incidence and serial interval
   R_info = calculate_Reff(incidence, unlist(serial_int), p$r_eff_window)
-
+  
   # Prepare final model output
   results = format_output(o, p, m, R_info, network, ppl, yaml, seed)
   
@@ -385,10 +390,11 @@ initiate_ppl = function(o, p, verbose) {
     mass_test_accept  = logical(p$population_size),    # Whether this individual would be willing to take part in mass testing
     test_date         = numeric(p$population_size),    # Potential data for a test (all infected individuals are assigned this)
     diagnosis_date    = numeric(p$population_size),    # Date of diagnosis (ie positive test result)
+    treatment_date    = numeric(p$population_size),    # Date received treatment
     days_next_event   = numeric(p$population_size),    # Days until next event occurs	
     days_recovered    = numeric(p$population_size),    # Number of days since recovery - used to define immunity profile	
     immune_state      = numeric(p$population_size),    # Captures immune state of individual and other relevant comorbidities like blood group, Il6 to Il10 ratio, and neanderthal recombinant genome	
-    vaccine_group     = character(p$population_size),  # Priority group for vaccination (group 1 highest priority)	
+    priority_group    = character(p$population_size),  # Priority group for vaccination and treatment (group 1 highest priority)	
     vaccine_accept    = logical(p$population_size),    # Whether this individual with accept vaccination
     booster_accept    = logical(p$population_size),    # Whether this individual with accept vaccination booster dose
     booster_due       = numeric(p$population_size),    # Date next booster dose is due to be administered
@@ -422,10 +428,11 @@ initiate_ppl = function(o, p, verbose) {
   ppl[, mass_test_accept  := FALSE]   # Assigned below
   ppl[, test_date         := NA]
   ppl[, diagnosis_date    := NA]
+  ppl[, treatment_date    := NA]
   ppl[, days_next_event   := NA]
   ppl[, days_recovered    := NA]
   ppl[, immune_state      := 0]       # Assume everyone starts with no immunity
-  ppl[, vaccine_group     := "none"]  # Assigned below
+  ppl[, priority_group    := "none"]  # Assigned below
   ppl[, vaccine_accept    := FALSE]   # Assigned below
   ppl[, booster_accept    := FALSE]   # Assigned below
   ppl[, booster_due       := NA]
@@ -459,29 +466,29 @@ initiate_ppl = function(o, p, verbose) {
   # Iterate through the different priority groups
   # 
   # NOTE: We do last at first so any people in multiple groups are placed in the highest possible group
-  for (i in 1 : p$vaccine$n_groups) {
-    this_group = p$vaccine$groups[p$vaccine$n_groups - i + 1, ]
+  for (group_id in rev(p$priority_groups$id)) {
+    this_group = p$priority_groups[id == group_id, ]
     
     # Evaluate the condition and set priority for any that satisfy
-    ppl[eval(parse(text = this_group$condition)), vaccine_group := this_group$id]
+    ppl[eval(parse(text = this_group$condition)), priority_group := this_group$id]
   }
   
   # Again iterate through priority groups - this time to set vaccine acceptance probabilities
   #
   # NOTE: We do this after all groups are formalised to prevent double counting
-  for (group_id in p$vaccine$groups$id) {
+  for (group_id in p$priority_groups$id) {
     
     # Proportion of this group that would accept a vaccine (ie max coverage)
-    acceptance = p$vaccine$groups[id == group_id, max_coverage]
-    booster    = p$vaccine$booster_groups[vaccine_group == group_id, probability]
+    acceptance = p$vaccine$details[id == group_id, max_coverage]
+    booster    = p$booster_details[id == group_id, probability]
     
     # Sample logical and populate vaccine_accept variable
-    ppl[vaccine_group == group_id, 
+    ppl[priority_group == group_id, 
         vaccine_accept := sample_vec(c(TRUE, FALSE), size = .N, replace = TRUE, 
                                      prob = c(acceptance, 1 - acceptance))]
     
     # Do similar for booster_accept variable, but only for those that accept vaccine in general
-    ppl[vaccine_group == group_id & vaccine_accept == TRUE, 
+    ppl[priority_group == group_id & vaccine_accept == TRUE, 
         booster_accept := sample_vec(c(TRUE, FALSE), size = .N, replace = TRUE, 
                                      prob = c(booster, 1 - booster))]
   }
@@ -512,15 +519,15 @@ initiate_epidemic = function(o, p, ppl) {
   
   # ---- Initiate previously vaccinated ---
   
-  # Iterate through the vaccine priority groups
-  for (group_name in p$vaccine$groups$id) {
-    group = p$vaccine$groups[id == group_name, ]
+  # Iterate through the vaccine and treatment priority groups
+  for (priority_id in p$priority_groups$id) {
+    group = p$vaccine$details[id == priority_id, ]
     
     # Skip this if we have zero max coverage for this group
     if (group$max_coverage > 1e-6) {
       
       # IDs of all those in this priority group who will accept the vaccine
-      group_id = ppl[vaccine_group == group_name & vaccine_accept == TRUE, id]
+      group_id = ppl[priority_group == priority_id & vaccine_accept == TRUE, id]
       
       # Proportion of group and absolute number previously vaccinated
       p_vaccinate = group$init_coverage / group$max_coverage
@@ -539,8 +546,9 @@ initiate_epidemic = function(o, p, ppl) {
   
   # Booster delivery details for all those who will recieve booster dose(s)
   booster_df = ppl[days_vaccinated > 0 & booster_accept == TRUE] %>% 
-    select(id, vaccine_group, days_vaccinated, days_booster, booster_due) %>% 
-    left_join(p$vaccine$booster_groups[, -"probability"], by = "vaccine_group")
+    select(id, priority_group, days_vaccinated, days_booster, booster_due) %>% 
+    left_join(p$booster_details[, -"probability"], 
+              by = c("priority_group" = "id"))
   
   # Assign first booster delivery date, bounded below if force-starting
   booster_df[, booster_due := pmin(pmax(cycle_period - days_vaccinated, start), force_start, na.rm = TRUE)]
@@ -550,7 +558,7 @@ initiate_epidemic = function(o, p, ppl) {
   booster_df[booster_due < 0, booster_due := cycle_period - days_booster]
   
   # Apply these details to the main ppl datatable (avoid starting on day zero)
-  ppl[id %in% booster_df$id, days_booster := pmax(booster_df$days_booster, 1, na.rm = TRUE)]
+  ppl[id %in% booster_df$id, days_booster := pmax(booster_df$days_booster, 1, na.rm = FALSE)]
   ppl[id %in% booster_df$id, booster_due  := pmax(booster_df$booster_due, 1)]
   
   # ---- Initiate previously infected ----
@@ -677,35 +685,52 @@ preallocate_output = function(p) {
 # ---------------------------------------------------------
 # Update model output datatable with counts of outcomes
 # ---------------------------------------------------------
-update_output = function(m, p, date_idx, update_metric, to_count) {
+update_output = function(m, p, date_idx, update_metric, to_count, denom = 1) {
   
-  # Loop through each metric defined within update_metric (comma seperated)
-  update_metrics = unlist(str_split(str_remove_all(update_metric, " "), ","))
-  for (update_metric in update_metrics) {
+  # All groupings to disaggregate by for this metric
+  metric_groupings = p$metrics$groupings[names(p$metrics$groupings) == update_metric]
+  
+  # Iterate through the groupings
+  for (grouping in metric_groupings) {
     
-    # Loop through all groupings defined for this metric
-    metric_groupings = p$metrics$groupings[names(p$metrics$groupings) == update_metric]
-    for (grouping in metric_groupings) {
+    # For metrics with no possible disaggregation...
+    if (grouping == "na") {
       
-      # For metrics with no possible disaggregation, append single value
-      if (grouping == "na") {
-        m[metric == update_metric & date == date_idx, value := to_count]
+      # ... append single value
+      metric_count = to_count / denom
+      m[metric == update_metric & date == date_idx & is.na(group), value := metric_count]
+      
+      # For metrics we have chosen not to disaggregate...
+    } else if (grouping == "none") {
+      
+      # ... count all values
+      metric_count = nrow(to_count) / nrow(as.data.table(denom))
+      m[metric == update_metric & date == date_idx & is.na(group), value := metric_count]
+      
+    } else {  # Otherwise we want to count each grouping
+      
+      # Count number of occurrences of each group
+      metric_count = group_count = table(to_count[, ..grouping])
+      
+      # Also count group occurrences in denominator (if provided)
+      if (is.data.frame(denom)) {
+        denom_count = table(denom[, ..grouping])
         
-        # For metrics we have chosen not to disaggregate, count all values
-      } else if (grouping == "none") {
-        m[metric == update_metric & date == date_idx, value := nrow(to_count)]
+        # Divide denominator through (only for non-trivial groups)
+        metric_count = group_count / denom_count[names(group_count)]
         
-      } else {  # Otherwise we want to count each grouping...
+      } else { # If denominator is not a dataframe...
         
-        # Count number of occurrences of each group
-        group_count = table(to_count[, ..grouping])
-        
-        # Insert these values into output datatable
-        m[metric == update_metric &         # This metric
-            date == date_idx &              # This time step
-            group %in% names(group_count),  # This subset of 'groups'
-          value := group_count]
+        # ... ensure it is nothing other than trivial
+        if (!identical(denom, 1))
+          stop("Denominator must be a dataframe if counting metrics by group")
       }
+      
+      # Insert these grouped values into output datatable
+      m[metric == update_metric &         # This metric
+          date == date_idx &              # This time step
+          group %in% names(metric_count),  # This subset of 'groups'
+        value := metric_count]
     }
   }
   
@@ -719,17 +744,25 @@ update_output = function(m, p, date_idx, update_metric, to_count) {
 # ---------------------------------------------------------
 format_output = function(o, p, m, R_info, network, ppl, yaml, seed) {
   
-  # Store effective reproduction number (calculated in postprocess.R)
-  m[metric == "R_effective", value := R_info$R_eff$value]
-  
   # Insert seasonality profile - this is actually input, not output, but is helpful for visualisation
-  m[metric == "seasonality", value := p$seasonality[1 : p$n_days]]
+  m[metric == "seasonality", value := 100 * p$seasonality[1 : p$n_days]]
   
   # Similar for NPI effect on contact reduction
   m[metric == "contact_reduction", value := p$npi_effect * p$npi_scaler]
   
   # Convert number of cases per variant to variant prevalence
   m[metric == "variant_prevalence", value := 100 * value / max(sum(value), 1), by = "date"]
+  
+  # Convert total doses into a cumulative measure
+  m[metric == "total_doses", value := cumsum(value), by = .(grouping, group)]
+  
+  # Store effective reproduction number (calculated in postprocess.R)
+  R_info$R_eff$value[1 : (min(o$fit_days) - 1)] = NA  # Remove values before fitting period
+  m[metric == "R_effective", value := R_info$R_eff$value]
+  
+  # Count number of infections per person, capped by max_infections
+  n_infections = table(pmin(ppl[, n_infections], p$max_infections))
+  m[metric == "n_infections" & group %in% names(n_infections), value := n_infections]
   
   # Append scenario and seed columns to output datatable
   m$scenario = p$.id
@@ -792,6 +825,7 @@ update_state = function(p, ppl, date_idx, m = NULL) {
       ppl[reset_id, days_infected    := NA]
       ppl[reset_id, days_infectious  := NA]
       ppl[reset_id, diagnosis_date   := NA]
+      ppl[reset_id, treatment_date   := NA]
       ppl[reset_id, viral_load       := NA]
       ppl[reset_id, prognosis_state  := "none"]
       
@@ -827,7 +861,7 @@ update_state = function(p, ppl, date_idx, m = NULL) {
       ppl[duration_id, days_next_event := duration_val]
     }
     
-    # ---- Initaite infectious period and possible test date ----
+    # ---- Initaite infectious period and possible test & treat dates ----
     
     # Newly infectious people are those going INTO the pre-symptomatic phase
     new_infectious_id = update_df[next_disease == "presym", id]
@@ -1027,23 +1061,29 @@ fn_prognosis = function(o, p, new_infected) {
   
   # ---- Potentially avoid disease if vaccinated ----
   
-  # Immunity to severe disease can be reduced if variant infected with is immuno-escaping
-  immunity_disease = new_infected[, .(id, variant, vaccine_effect)] %>%
+  # Vaccine effect can be reduced if variant infected with is immuno-escaping
+  vaccine_effect = new_infected %>%
+    select(id, variant, vaccine_effect) %>%
     mutate(escape = 1 - p$variants$immuno_escape[match(variant, p$variants$id)], 
-           value  = vaccine_effect * escape) %>%
+           value  =  vaccine_effect * escape) %>%
     pull(value)
   
-  # Overall probability of being asymptomatic (considering standard proportion_asymptomatic)
-  #
-  # NOTE: This is scaled by the current 'effect' of the vaccine
-  probability_asym = immunity_disease / p$vaccine$efficacy * 
-    (1 - (1 - p$vaccine$disease_prevention) * (1 - p$proportion_asymptomatic))
+  # Individual probability of symptoms given vaccination status
+  probability_symptoms = 
+    ((1 - vaccine_effect) * (1 - p$proportion_asymptomatic)) / 
+    (1 - vaccine_effect * p$vaccine$transmission_blocking)
+  
+  # Additional probability of being asymptomatic given vaccination status
+  disease_prevention = 1 - probability_symptoms - p$proportion_asymptomatic
+  
+  # Remove tiny rounding errors around zero
+  disease_prevention[disease_prevention < 1e-6] = 0
   
   # Skip if none of these people have been vaccinated
-  if (sum(probability_asym) > 0) {
+  if (sum(disease_prevention) > 0) {
     
     # Draw random number to determine if this person should be asymptomatic due to vaccine effect
-    asym_vaccine_effect = runif(nrow(new_infected)) < probability_asym
+    asym_vaccine_effect = runif(nrow(new_infected)) < disease_prevention
     
     # Reassign prognosis to asymptomatic disease
     prognosis[asym_vaccine_effect] = "asym"
@@ -1150,32 +1190,32 @@ fn_isolate = function(p, ppl, date_idx) {
 }
 
 # ---------------------------------------------------------
-# Vaccinate eligible people (according to number_vaccines or vaccine_coverage)
+# Vaccinate eligible people
 # ---------------------------------------------------------
-fn_vaccinate = function(p, ppl, n_vaccine_group, date_idx) {
+fn_vaccinate = function(p, ppl, n_priority_group, date_idx) {
   
   # Coverage difference between yesterday and today
   #
   # NOTE: Binding initial coverage so we consistently index a 2D matrix
-  coverage_matrix = rbind(p$vaccine$groups$init_coverage, p$vaccine$coverage)
+  coverage_matrix = rbind(p$vaccine$details$init_coverage, p$vaccine$coverage)
   coverage_diff   = coverage_matrix[date_idx : (date_idx + 1), ] %>%
     matrix(nrow = 2, dimnames = list(1 : 2, colnames(coverage_matrix)))
   
   # Iterate through the vaccine priority groups
-  for (group in p$vaccine$groups$id) {
+  for (group in p$priority_groups$id) {
     
     # Only continue if we have people to vaccinate at this time step
     if (diff(coverage_diff[, group]) > 0) {
       
       # All people eligible for vaccination in this group at this time step 
-      eligible = ppl[vaccine_group == group & vaccine_accept == TRUE & is.na(days_vaccinated), ]
+      eligible = ppl[priority_group == group & vaccine_accept == TRUE & is.na(days_vaccinated), ]
       
       # Number of people we want vaccinated in this group in this time step
-      n_group   = n_vaccine_group[vaccine_group == group, N]
+      n_group   = n_priority_group[priority_group == group, N]
       n_desired = round(p$vaccine$coverage[date_idx, group] * n_group)
       
       # Number of people currently vaccinated in this group
-      n_current = nrow(ppl[vaccine_group == group & !is.na(days_vaccinated), ])
+      n_current = nrow(ppl[priority_group == group & !is.na(days_vaccinated), ])
       
       # How many we will vacinate this time step - bounded above by number available
       n_vaccinate = min(max(n_desired - n_current, 0), nrow(eligible))
@@ -1192,8 +1232,8 @@ fn_vaccinate = function(p, ppl, n_vaccine_group, date_idx) {
   
   # IDs of those to receive a booster today (limited to booster_doses per day)
   booster_id = ppl[booster_due <= date_idx] %>%
-    left_join(n_vaccine_group, 
-              by = "vaccine_group") %>%
+    left_join(n_priority_group, 
+              by = "priority_group") %>%
     select(id, booster_due, priority) %>%
     arrange(booster_due, priority) %>%
     slice_head(n = p$booster_doses) %>%
@@ -1213,22 +1253,126 @@ fn_vaccinate = function(p, ppl, n_vaccine_group, date_idx) {
   # Set date of first booster dose (for those recieving final dose of initial schedule today)
   booster_1_df = ppl[days_vaccinated == final_dose & 
                        booster_accept == TRUE] %>% 
-    select(id, vaccine_group, days_vaccinated, days_booster, booster_due) %>% 
-    left_join(p$vaccine$booster_groups[, -"probability"], 
-              by = "vaccine_group") %>%
+    select(id, priority_group, days_vaccinated, days_booster, booster_due) %>% 
+    left_join(p$booster_details[, -"probability"], 
+              by = c("priority_group" = "id")) %>%
     mutate(booster_due = pmin(pmax(cycle_period + date_idx, start), 
-                              force_start, na.rm = TRUE))
+                              force_start, na.rm = TRUE), 
+           booster_due = ifelse(booster_due <= force_end, booster_due, NA))
   
   # Set date of subsequent booster dose (for those receiving a booster today)
   booster_n_df = ppl[id %in% booster_id] %>% 
-    select(id, vaccine_group, days_vaccinated, days_booster, booster_due) %>% 
-    left_join(p$vaccine$booster_groups[, -"probability"], 
-              by = "vaccine_group") %>%
-    mutate(booster_due = booster_due + cycle_period)
+    select(id, priority_group, days_vaccinated, days_booster, booster_due) %>% 
+    left_join(p$booster_details[, -"probability"], 
+              by = c("priority_group" = "id")) %>%
+    mutate(booster_due = booster_due + cycle_period, 
+           booster_due = ifelse(booster_due <= force_end, booster_due, NA))
   
   # Apply next booster due date calculated above
   ppl[id %in% booster_1_df$id, booster_due := booster_1_df$booster_due]
   ppl[id %in% booster_n_df$id, booster_due := booster_n_df$booster_due]
+  
+  return(ppl)
+}
+
+# ---------------------------------------------------------
+# Handle all vaccine and booster metrics
+# ---------------------------------------------------------
+fn_vaccine_count = function(m, p, ppl, date_idx) {
+  
+  # Number vaccinated total and historically
+  vaccine_today = ppl[days_vaccinated == 0, ]
+  vaccine_total = ppl[days_vaccinated >= 0, ]
+  
+  # Store the number of people vaccinated today and in total
+  m = update_output(m, p, date_idx, "n_vaccinated",     vaccine_today)
+  m = update_output(m, p, date_idx, "total_vaccinated", vaccine_total)
+  
+  # People receiving doses: first dose, subsequent doses, and booster doses
+  vaccine_dose = ppl[days_vaccinated %in% c(0, p$vaccine$subsequent_dose_days), ]
+  booster_dose = ppl[days_booster == 0, ]
+  
+  # Bind these dataframes together
+  all_doses = rbind(vaccine_dose, booster_dose)
+  
+  # Store number of vaccine doses administered in this time step
+  m = update_output(m, p, date_idx, "n_doses",     all_doses)
+  m = update_output(m, p, date_idx, "total_doses", all_doses)  # Cum-summed in format_output
+  
+  # Total number of people eligible for vaccination (used as denominator)
+  vaccine_elig = ppl[priority_group != "none", ]
+  
+  # Vaccine coverage, using both those eligible and total pop as the denominator
+  m = update_output(m, p, date_idx, "vaccine_coverage",     vaccine_total, denom = vaccine_elig)
+  m = update_output(m, p, date_idx, "vaccine_coverage_pop", vaccine_total, denom = ppl)
+  
+  # Any number of boosters recieved at any time
+  booster_total = ppl[days_booster >= 0, ]
+  
+  # Booster coverage among those eligible (ie previously vaccinated) and population level
+  m = update_output(m, p, date_idx, "booster_coverage",     booster_total, denom = vaccine_total)
+  m = update_output(m, p, date_idx, "booster_coverage_pop", booster_total, denom = ppl)
+  
+  # Boosted in past 365 days
+  booster_12m = ppl[days_booster >= 0 & days_booster <= 365, ]
+  
+  # Coverage of boosters in past 365 days
+  m = update_output(m, p, date_idx, "booster_coverage_12m",     booster_12m, denom = vaccine_total)
+  m = update_output(m, p, date_idx, "booster_coverage_12m_pop", booster_12m, denom = ppl)
+  
+  return(m)
+}
+
+# ---------------------------------------------------------
+# Treat eligible infected cases
+# ---------------------------------------------------------
+fn_treatment = function(p, ppl, date_idx) {
+  
+  # Extract people who could be due treatment today
+  treat_df = ppl %>%
+    left_join(p$treat_prob, 
+              by = c("priority_group", "disease_state")) %>%
+    left_join(p$treat_available, 
+              by = "priority_group") %>%
+    filter(treat_prob > 0, 
+           available <= date_idx,
+           diagnosis_date == date_idx - p$treat_delay)
+  
+  # It remains to check their vaccine status and treatment conditions...
+  #
+  # NOTE: There is probably a better way of doing this in one step
+  
+  # Treatments for the unvaccinated
+  treat_unvax = treat_df %>%
+    filter(vaccine_condition == "unvaccinated", 
+           is.na(days_vaccinated))
+  
+  # Treatments for the vaccinated
+  treat_vax = treat_df %>%
+    filter(vaccine_condition == "vaccinated", 
+           days_vaccinated > 0)
+  
+  # Treatment regardless of vaccine status
+  treat_all = treat_df %>%
+    filter(vaccine_condition == "none")
+  
+  # Test treatment probability and pull IDs of those to be treated
+  treat_id = rbind(treat_unvax, treat_vax, treat_all) %>%
+    mutate(rand = runif(n()), 
+           treated = rand < treat_prob) %>% 
+    filter(treated == TRUE) %>%
+    pull(id)
+  
+  # Reset prognosis, disease, and care values to represent a mild case...
+  ppl[treat_id, disease_state   := "mild"]
+  ppl[treat_id, care_state      := "none"]
+  ppl[treat_id, prognosis_state := "mild"]
+  
+  # ... which is just about to recover
+  ppl[treat_id, days_next_event := 1]
+  
+  # Assign current date index to treatment_date variable
+  ppl[treat_id, treatment_date := date_idx]
   
   return(ppl)
 }
@@ -1266,7 +1410,7 @@ fn_immunity = function(p, ppl, variant_prevalence, infectious_contacts = NULL) {
   # ---- Immunity per exposure ----
   
   # First job is to calculate current 'effect' of vaccination - depends on day of vaccination and any booster
-  ppl[days_vaccinated > 0, vaccine_effect := pmax(p$vaccine$booster_profile[days_booster], 
+  ppl[days_vaccinated > 0, vaccine_effect := pmax(p$booster_profile[days_booster], 
                                                   p$vaccine$profile[days_vaccinated], na.rm = TRUE)]
   
   # Skip this step if no exposure details provided

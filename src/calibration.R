@@ -52,14 +52,14 @@ run_calibration = function(o) {
   # ---- Simulate parameter samples ----
   
   message(" - Simulating samples")
-
+  
   # Submit all jobs to the cluster (see auxiliary.R)
   submit_cluster_jobs(o, o$emulator_samples, "bash_submit.sh", "fitting")
-
+  
   # Throw an error if any cluster jobs failed (see auxiliary.R)
   err_tol = floor(o$emulator_samples * o$sample_err_tol)
   stop_if_errors(o$pth$log, o$err_file, err_tol = err_tol)
-
+  
   # Remove all log files if desired (generally a good idea unless debugging)
   if (o$rm_cluster_log) unlink(paste0(o$pth$log, "*"), force = TRUE)
   
@@ -67,7 +67,7 @@ run_calibration = function(o) {
   output_files = list.files(path    = o$pth$fit_samples,
                             pattern = "sample_[0-9]+.rds",  
                             full.names = TRUE)
-
+  
   # Load these files into one long datatable and combine with samples
   samples_df = rbindlist(lapply(output_files, readRDS)) %>%
     right_join(samples_df, by = c("param_id", "seed"))
@@ -81,7 +81,7 @@ run_calibration = function(o) {
   
   # First job is to normalise response variable
   norm_df = samples_df # %>%
-    # mutate(r_eff = normalise_0to1(r_eff))
+  # mutate(r_eff = normalise_0to1(r_eff))
   
   # We'll then do the same for all predictor variables
   for (param in fit_params) {
@@ -101,7 +101,7 @@ run_calibration = function(o) {
   # Split samples into train and test - summarise test outcomes
   train_data = filter(norm_df, !param_id %in% test_id)
   test_data  = filter(norm_df, param_id %in% test_id) %>%
-    group_by(param_id, contacts) %>%
+    group_by_at(c("param_id", fit_df$param)) %>%
     summarise(r_eff = mean(r_eff)) %>%
     as.data.table()
   
@@ -179,13 +179,13 @@ run_calibration = function(o) {
     
     # Run ASD algorithm to determine optimal contacts
     this_optim = asd(objective_fn, 
-                    x0   = x0_mat[i, ],
-                    args = obj_args,
-                    lb   = fit_df$lower,
-                    ub   = fit_df$upper,
-                    max_iters  = o$fit_iters_max,
-                    plot_iters = NULL, # o$fit_iters_plot, 
-                    verbose = FALSE)
+                     x0   = x0_mat[i, ],
+                     args = obj_args,
+                     lb   = fit_df$lower,
+                     ub   = fit_df$upper,
+                     max_iters  = o$fit_iters_max,
+                     plot_iters = NULL, # o$fit_iters_plot, 
+                     verbose = FALSE)
     
     # Store result
     fit_output$x[i, ] = this_optim$x
@@ -204,26 +204,26 @@ run_calibration = function(o) {
   
   # Compile optimal result into named list
   fit_list = as.list(setNames(best_val, fit_params))
-
+  
   # Store result, input, and optim output in list
   fit_result = list(params = fit_params, 
                     bounds = fit_bounds, 
                     result = fit_list, 
                     input  = fit_input,
                     output = fit_output)
-
+  
   # Save all these details to file
   saveRDS(fit_result, file = paste0(o$pth$fitting, "fit_result.rds"))
   
   # ---- Performance plots ----
   
-  message(" - Assessing calibration performance")
+  message(" - Assessing optimisation performance")
   
   # Plot emulator performance (see plotting.R)
-  plot_emulator(o)
+  plot_emulator(o, "Emulator performance")
   
   # Plot optimisation performance (see plotting.R)
-  plot_optimisation(o)
+  plot_optimisation(o, "Optimisation performance")
 }
 
 # ---------------------------------------------------------

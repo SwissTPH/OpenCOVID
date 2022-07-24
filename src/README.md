@@ -2,7 +2,7 @@
 
 An individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynamics developed at Swiss TPH. A stochastic, discrete-time model with age, risk-group, network, and viral variant structure. From version 2.0 onwards, the model is setting-agnostic.
 
-##### Version 2.1 (stable with R versions 3.6-4.1)
+##### Version 2.2 (stable with R versions 3.6-4.1)
 
 ## The repository
 
@@ -72,7 +72,7 @@ Note that it is generally not necessary to preserve ordering in analysis files.
 
 ## Release details
 
-#### V2.1 release date: 31-01-2022
+#### V2.2 release date: xx-04-2022
 
 #### Development and maintenance:
 * Andrew J. Shattock (andrewjames.shattock@swisstph.ch)

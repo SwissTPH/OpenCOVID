@@ -5,7 +5,7 @@
 # ---- Baseline settings ----
         
 # Run all simulations for 500 days into the future
-n_days: 500
+n_days: 200
 n_days_init: -365
 
 # Initial conditions 
@@ -14,19 +14,24 @@ previously_infected: 0.25
 # Initiate future at an effective reporduction number of 1.2
 r_eff: 1.2
 
+# Priority group definitions
+priority_groups: 
+- id: high_risk
+  name: "65+ or comorbidities"
+  priority: 1
+  condition: "age >= 65 | comorbidities == TRUE"
+- id: low_risk
+  name: "18-65 year olds"
+  priority: 2
+  condition: "age >= 18 & age < 65"
+
 # Vaccination history
 vaccine_history: 
 - id: high_risk
-  name: "60+ or comorbidities"
-  priority: 1
-  condition: "age >= 60 | comorbidities == TRUE"
   init_coverage: 0.9
   init_start: -120  # Days into the past that vaccination program began
   init_end: -60     # Days into the past that vaccination program ended
 - id: low_risk
-  name: "18-60 year olds"
-  priority: 2
-  condition: "age >= 18 & age < 60"
   init_coverage: 0.4
   init_start: -80   # Days into the past that vaccination program began
   init_end: 0       # Set to zero as vaccination program ongoing
@@ -54,6 +59,20 @@ booster_rollout:
   cycle_period: 365  # Booster dose administered every cycle_period days
   start: 100         # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
   force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+  
+treatment:
+- id: high_risk
+  vaccine_condition: "unvaccinated"
+  available: 1 # 20
+  prob_mild: 0.1  # Probability of treatment IF diagnosed
+  prob_severe: 0.8
+  prob_crit: 0.8
+- id: low_risk
+  vaccine_condition: "unvaccinated"
+  available: 50
+  prob_mild: 0.0
+  prob_severe: 0.2
+  prob_crit: 0.8
 
 # Initiate a novel variant
 variants_novel:

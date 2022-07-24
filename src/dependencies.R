@@ -41,6 +41,7 @@ source("cluster_jobs.R")
 source("postprocess.R")
 source("results.R")
 source("plotting.R")
+source("manuscript.R")
 source("unit_tests.R")
 
 # Also load my_results if it exists
@@ -55,13 +56,14 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "hetGP",          # Gaussian Process model and acquisition functions
              "philentropy",    # Distance measures
              "smooth",         # Simple moving average model
+             "splines",        # Spline fitting models
              "forecast",       # Linear regression for time series
              "imputeTS",       # Imputation for time series
              "akima",          # Bivariate interpolation
              "stats",          # Statistical calculations and random number generation
              "matrixStats",    # Matrix row and column operations
-             "tidygraph",      # Network functionality
-             "ggraph",         # Network functionality
+             # "tidygraph",      # Network functionality
+             # "ggraph",         # Network functionality
              "widyr",          # Compile network properties
              "socialmixr",     # Age structured contact matrixes from POLYMOD
              "EpiEstim",       # R_effective calculated from incidence and serial interval
@@ -83,11 +85,16 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "ggpubr",         # Plotting functionality
              "cowplot",        # Plotting functionality
              "scales",         # Plotting functionality
+             "ggh4x",          # Plotting functionality (flexible faceting)
+             "ggtext",         # Plotting functionality (use markdown in labels)
              "pals",           # Colour palettes
              "GGally",         # Network plotting
              "igraph",         # Network plotting
              "RColorBrewer",   # Network plotting colour palettes
              "progress")       # Cool progress bar
+
+# List of all packages only available from github
+gh_packages = c("eliocamp/tagger")
 
 # ---- Install and/or load packages with pacman ----
 
@@ -101,10 +108,13 @@ if (!pacman_installed)
   install.packages("pacman")
 
 # Load pacman
-require(pacman) 
+library(pacman) 
 
 # Load all required packages, installing them if required
 pacman::p_load(char = packages)
+
+# Same for github packages
+pacman::p_load_gh(gh_packages)
 
 # ---- Redefine or unmask particular functions ----
 
@@ -115,6 +125,6 @@ filter  = dplyr::filter
 rename  = dplyr::rename
 recode  = dplyr::recode
 predict = stats::predict
-groups  = tidygraph::groups
+# groups  = tidygraph::groups
 as.data.frame = base::as.data.frame
 

@@ -21,6 +21,9 @@ run_model_test = function(o, scenario = "baseline") {
   # Run model for the defined scenario (see model.R)
   result = model(o, scenario, seed = 1, do_plot = FALSE, verbose = "bar")
   
+  # Aggregative and summarise raw model output (see postprocess.R)
+  result = process_results(result, result$output)
+  
   # Save result as an RDS file
   saveRDS(result, paste0(o$pth$testing, "model_test.rds"))
   
@@ -45,22 +48,26 @@ run_model_test = function(o, scenario = "baseline") {
   
   # Plot variants over time the data
   fig_name = c("Test simulation", scenario, "Variants")
-  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario, 
+  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario,
                 plot_by = "variant")
   
   # Same plot but using stacked areas
   fig_name = c("Test simulation", scenario, "Variants", "Area")
-  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario, 
+  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario,
                 plot_by = "variant", plot_geom = "area")
   
   # Plot variants over time the data
   fig_name = c("Test simulation", scenario, "Age")
-  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario, 
+  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario,
                 plot_by = "age", plot_geom = "area")
   
   # Same plot but using stacked areas
-  fig_name = c("Test simulation", scenario, "Vaccine priority")
-  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario, 
-                plot_by = "vaccine_group", plot_geom = "area")
+  fig_name = c("Test simulation", scenario, "Priority groups")
+  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario,
+                plot_by = "priority_group", plot_geom = "area")
+  
+  # Histogram of number of infections per person
+  fig_name = c("Test simulation", scenario, "Number of infections")
+  plot_num_infections(o, fig_name, plot_file = result, alt_baseline = scenario)
 }
 

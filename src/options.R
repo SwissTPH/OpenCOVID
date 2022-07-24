@@ -46,7 +46,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # Take R_eff as the mean across these days
   #
   # NOTE: R_eff is calculated over a 7-day rolling window
-  o$fit_days = 7 : 10
+  o$fit_days = 10 : 15
   
   # Number of samples and seeds for training model emulator
   o$emulator_samples = 400
@@ -71,6 +71,8 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$fit_iters_max = 100
   
   # Selection of model parameters that can be changed without the need for re-fitting
+  #
+  # TODO: We should be able to avoid this by setting n_days to max(fit_days) and then comparing
   o$fit_changeable_items = c("n_days", 
                              "model_metrics",
                              "contacts_scaler",
@@ -110,7 +112,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # ---- Cluster settings ----
   
   # Flag for overwriting any existing simulations
-  o$overwrite_simulations = FALSE
+  o$overwrite_simulations = TRUE
   
   # Check YAML file consistency for any existing simulations before skipping
   o$check_yaml_consistency = TRUE
@@ -161,8 +163,8 @@ set_options = function(do_step = NA, quiet = FALSE) {
   
   # Colour packages and palettes for groupings (see colour_scheme in myRfunctions.R)
   o$palette_age     = "brewer::set2"
-  o$palette_variant = "brewer::set1"
-  o$palette_vaccine_group = "brewer::set1"
+  o$palette_variant = "brewer::dark2"
+  o$palette_priority_group = "brewer::set2"
   
   # Define some nice properties for baseline metric plots
   o$baseline_name   = "Baseline scenario"
@@ -176,10 +178,16 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$save_width  = 14
   o$save_height = 10
   
+  # Units of figures sizes
+  o$save_units = "in"
+  
+  # Plotting resolution (in dpi)
+  o$save_resolution = 300
+  
   # Image format for saving figure
   # 
   # NOTE: Use a character vector to save with multiple formats at once
-  o$figure_format = "png" # Classic options: "png", "pdf", or "svg"
+  o$figure_format = c("png", "tiff") # Classic options: "png", "pdf", or "svg"
   
   # ---- Plotting flags ----
   
@@ -192,6 +200,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$plot_assumptions = TRUE  # Model structure and assumptions figures
   
   # Flags for custom figures
+  o$plot_manuscript  = TRUE  # Plot figures for booster manuscript (June 2022)
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)
   
   # ---- Advanced functionality ----
