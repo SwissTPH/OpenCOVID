@@ -8,7 +8,7 @@
 # ---- R version check ----
 
 # R versions for which this project has been tested and is stable
-stable_versions = c("3.6.0", "3.6.3", "4.0.0", "4.0.3", "4.1.0")
+stable_versions = "4.1.0"
 
 # R versions for which this project is stable (as a string)
 stable_str = paste(stable_versions, collapse = ", ")
@@ -21,7 +21,7 @@ version_num = paste0(version_info$major, ".",  version_info$minor)
 
 # Throw an error if this R version is unsuitable
 if (!version_num %in% stable_versions)
-  stop("This software is stable with R versions: ", stable_str, 
+  stop("This software is stable with R version(s): ", stable_str, 
        " (currently running ", version_num, ")")
 
 # ---- Source all files ----
