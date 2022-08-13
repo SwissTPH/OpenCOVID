@@ -8,5 +8,6 @@ config/my_options.csv
 log/
 input/*
 !input/demo.yaml
+!input/booster.yaml
 output/
 

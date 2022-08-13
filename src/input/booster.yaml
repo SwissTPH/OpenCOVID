@@ -1,0 +1,2554 @@
+---
+
+# ---- Meta parameters ----
+
+# Number of people to simulate
+population_size: 100000
+
+# Time settings
+n_days: 850        # Simulate for approx 2 years 4 months
+n_days_init: -730  # Epidemic 2 years old
+
+# Initial conditions 
+previously_infected: 0.4  # 40% of population infected in that time
+
+# Seasonality profile
+seasonality_scaler: 0.3
+seasonality_shift: 91  # Representing early-mid April
+
+# Transmission probability at maximum infecitivty, susceptibility, and seasonality
+beta: 0.002
+
+# Effective reproduction number at analysis start
+r_eff: 1.0  # Calibrated in step 1
+
+# ---- Immunity and variants ----
+
+# Immunity through natural infection (same decay as booster dose)
+acquired_immunity:
+  fn: "logistic_inv"
+  slope: 1.8
+  mid: 105
+  lb: 0.15
+  ub: 0.95
+
+# Primary variant (representing Omicron, values relative to wild type)
+variant_primary:
+  id: omicron
+  name: "Omicron"
+  infectivity: 14.4
+  severity: 1.54
+  immuno_escape: 0.0
+  
+# Novel variant properties
+variants_novel:
+- id: novel1
+  name: "Novel variant 1"
+  import_day: 0
+  import_number: 10
+  infectivity: 1.25
+  severity: 1.0
+  immuno_escape: 0.25
+- id: novel2
+  name: "Novel variant 2"
+  import_day: 0
+  import_number: 10
+  infectivity: 1.5625  # 1.25^2
+  severity: 1.0
+  immuno_escape: 0.25
+- id: novel3
+  name: "Novel variant 3"
+  import_day: 0
+  import_number: 10
+  infectivity: 1.953125  # 1.25^3
+  severity: 1.0
+  immuno_escape: 0.25
+- id: novel4
+  name: "Novel variant 4"
+  import_day: 0
+  import_number: 10
+  infectivity: 2.441406  # 1.25^4
+  severity: 1.0
+  immuno_escape: 0.25
+  
+# ---- Vaccination ----
+
+# Vaccine definition and immunity profile
+vaccine_defintion:
+  transmission_blocking: 0.8  # Proportion of efficacy that blocks infection
+
+# Priority group definitions
+priority_groups: 
+- id: group60comorbid
+  name: "60+ or comorbidities"
+  priority: 1
+  condition: "age >= 60 | comorbidities == TRUE"
+- id: group50_59
+  name: "50-59"
+  priority: 2
+  condition: "age >= 50 & age < 60"
+- id: group30_49
+  name: "30-49"
+  priority: 3
+  condition: "age >= 30 & age < 50"
+- id: group5_29
+  name: "5-29"
+  priority: 4
+  condition: "age >= 5 & age < 30"
+
+# Vaccination history
+vaccine_history: 
+- id: group60comorbid
+  init_coverage: 0.93
+  init_start: -400
+  init_end: -365
+- id: group50_59
+  init_coverage: 0.9
+  init_start: -400
+  init_end: -365
+- id: group30_49
+  init_coverage: 0.8
+  init_start: -400
+  init_end: -365
+- id: group5_29
+  init_coverage: 0.75
+  init_start: -400
+  init_end: -365
+  
+# Vaccination future (no additional 1st and 2nd doses)
+vaccine_rollout: 
+- id: group60comorbid
+  max_coverage: 0.93
+  max_start: 0
+  max_end: 0
+- id: group50_59
+  max_coverage: 0.9
+  max_start: 0
+  max_end: 0
+- id: group30_49
+  max_coverage: 0.8
+  max_start: 0
+  max_end: 0
+- id: group5_29
+  max_coverage: 0.75
+  max_start: 0
+  max_end: 0
+
+# Booster rollout (only groups to recieve a booster need to be specified)
+booster_doses: 1500  # Maximum number of doses per day (per 100,000 people)
+booster_rollout:
+- id: group60comorbid
+  probability: 0.0   # Probability of accepting/receiving a booster dose - set to zero in the baseline - boosters will be given in a scenario
+  cycle_period: 365  # Booster dose administered every cycle_period days
+  start: 183         # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: 183   # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+  force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
+- id: group50_59
+  probability: 0.0
+  cycle_period: 365
+  start: 183
+  force_start: 183
+  force_end: no
+- id: group30_49
+  probability: 0.0
+  cycle_period: 365  
+  start: 183
+  force_start: 183
+  force_end: no
+- id: group5_29
+  probability: 0.0
+  cycle_period: 365  
+  start: 183
+  force_start: 183
+  force_end: no
+  
+# ---- Calibration settings ----
+
+  # Define parameters to be calibrated
+calibration:
+- param: "contacts"
+  lower: 1
+  upper: 20
+
+# ---- Model metrics ----
+
+# Define model metrics to report and by which grouping
+model_metrics:
+  all_new_infections:
+    report: yes
+    by: variant, priority_group
+  new_local_infections:
+    report: no
+    by: none
+  new_importations:
+    report: no
+    by: none
+  confirmed:
+    report: no
+    by: none
+  deaths:
+    report: yes
+    by: priority_group
+  hospital_beds:
+    report: yes
+    by: none
+  hospital_admissions:
+    report: yes
+    by: variant, priority_group
+  icu_beds:
+    report: yes
+    by: none
+  icu_admissions:
+    report: yes
+    by: none
+  currently_infected:
+    report: no
+    by: none
+  currently_infectious:
+    report: no
+    by: none
+  currently_symptomatic:
+    report: no
+    by: none
+  currently_isolated:
+    report: no
+    by: none
+  recovered:
+    report: no
+    by: none
+  treated:
+    report: no
+    by: none
+  n_vaccinated:
+    report: no
+    by: none
+  total_vaccinated:
+    report: no
+    by: none
+  vaccine_coverage:
+    report: yes
+    by: priority_group
+  vaccine_coverage_pop:
+    report: yes
+    by: priority_group
+  booster_coverage:
+    report: yes
+    by: priority_group
+  booster_coverage_pop:
+    report: yes
+    by: none
+  booster_coverage_12m:
+    report: yes
+    by: priority_group
+  booster_coverage_12m_pop:
+    report: yes
+    by: none
+  n_doses:
+    report: yes
+    by: priority_group
+  total_doses:
+    report: yes
+    by: priority_group
+  n_infections: 
+    report: yes
+  variant_prevalence:
+    report: yes
+  R_effective:
+    report: yes
+  seroprevalence:
+    report: yes
+  pop_susceptibility:
+    report: yes
+  pop_prevalence:
+    report: no
+  seasonality:
+    report: yes
+  contact_reduction:
+    report: no
+    
+# ---- Alternative scenarios ----
+
+# Universal booster coverage
+scenarios:
+- id: x0v0c1
+  name: "No boosters (no variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.0
+- id: x0v1c1
+  name: "No boosters (annual variants)"
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: x0v2c1
+  name: "No boosters (biannual variants)"
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 350
+  - id: novel3
+    import_day: 532
+  - id: novel4
+    import_day: 715
+- id: x1v0c1
+  name: "Booster vulnerable every 12 months (universal coverage, no variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: x1v1c1
+  name: "Booster vulnerable every 12 months (universal coverage, annual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: x1v2c1
+  name: "Booster vulnerable every 12 months (universal coverage, biannual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 350
+  - id: novel3
+    import_day: 532
+  - id: novel4
+    import_day: 715
+- id: x2v0c1
+  name: "Booster all eligible every 12 months (universal coverage, no variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: x2v1c1
+  name: "Booster all eligible every 12 months (universal coverage, annual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: x2v2c1
+  name: "Booster all eligible every 12 months (universal coverage, biannual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 350
+  - id: novel3
+    import_day: 532
+  - id: novel4
+    import_day: 715
+- id: x3v0c1
+  name: "Booster all eligible every 12 months plus vulnerable every 6 months (universal coverage, no variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: x3v1c1
+  name: "Booster all eligible every 12 months plus vulnerable every 6 months (universal coverage, annual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: x3v2c1
+  name: "Booster all eligible every 12 months plus vulnerable every 6 months (universal coverage, biannual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 350
+  - id: novel3
+    import_day: 532
+  - id: novel4
+    import_day: 715
+- id: x4v0c1
+  name: "Booster all eligible every 6 months (universal coverage, no variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+- id: x4v1c1
+  name: "Booster all eligible every 6 months (universal coverage, annual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: x4v2c1
+  name: "Booster all eligible every 6 months (universal coverage, biannual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 350
+  - id: novel3
+    import_day: 532
+  - id: novel4
+    import_day: 715
+# Lower booster coverage 
+- id: x2v0c0
+  name: "Booster all eligible every 12 months (lower coverage, no variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.85
+  - id: group50_59
+    probability: 0.85
+  - id: group30_49
+    probability: 0.5
+  - id: group5_29
+    probability: 0.5
+- id: x2v1c0
+  name: "Booster all eligible every 12 months (lower coverage, annual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.85
+  - id: group50_59
+    probability: 0.85
+  - id: group30_49
+    probability: 0.5
+  - id: group5_29
+    probability: 0.5
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: x2v2c0
+  name: "Booster all eligible every 12 months (lower coverage, biannual variants)"
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.85
+  - id: group50_59
+    probability: 0.85
+  - id: group30_49
+    probability: 0.5
+  - id: group5_29
+    probability: 0.5
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 350
+  - id: novel1
+    import_day: 532
+  - id: novel2
+    import_day: 715
+# Timing scenarios
+- id: m1_jul
+  name: "6 months before"  # ie 1st July
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group50_59
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group30_49
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group5_29
+    probability: 0.98
+    force_start: 91
+    start: 91
+- id: m2_aug
+  name: "5 months before"  # ie 1st August
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group50_59
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group30_49
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group5_29
+    probability: 0.98
+    force_start: 122
+    start: 122
+- id: m3_sep
+  name: "4 months before"  # ie 1st September
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group50_59
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group30_49
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group5_29
+    probability: 0.98
+    force_start: 153
+    start: 153
+- id: m4_oct
+  name: "3 months before"  # ie 1st October
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group50_59
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group30_49
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group5_29
+    probability: 0.98
+    force_start: 183
+    start: 183
+- id: m5_nov
+  name: "2 months before"  # ie 1st November
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group50_59
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group30_49
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group5_29
+    probability: 0.98
+    force_start: 214
+    start: 214
+- id: m6_dec
+  name: "1 month before"  # ie 1st December
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group50_59
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group30_49
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group5_29
+    probability: 0.98
+    force_start: 244
+    start: 244
+- id: m7_jan
+  name: "Peak winter"  # ie 1st January (assuming coldest day of the year)
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group50_59
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group30_49
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group5_29
+    probability: 0.98
+    force_start: 275
+    start: 275
+- id: m8_feb
+  name: "1 month after"  # ie 1st February
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group50_59
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group30_49
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group5_29
+    probability: 0.98
+    force_start: 306
+    start: 306
+- id: m9_mar
+  name: "2 months after"  # ie 1st March
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group50_59
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group30_49
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group5_29
+    probability: 0.98
+    force_start: 334
+    start: 334
+# Sensitivity scenario: Seasonality effect 
+- id: s1u_x0
+  name: "Seasonality effect (policy 0, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1u_x1
+  name: "Seasonality effect (policy 1, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1u_x2
+  name: "Seasonality effect (policy 2, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1u_x3
+  name: "Seasonality effect (policy 3, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1u_x4
+  name: "Seasonality effect (policy 4, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1l_x0
+  name: "Seasonality effect (policy 0, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1l_x1
+  name: "Seasonality effect (policy 1, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1l_x2
+  name: "Seasonality effect (policy 2, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532    
+- id: s1l_x3
+  name: "Seasonality effect (policy 3, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s1l_x4
+  name: "Seasonality effect (policy 4, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline 
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+# Sensitivity scenario: Immunity infection blocking
+- id: s2u_x0
+  name: "Immunity infection blocking (policy 0, upper)"
+  vaccine_defintion:
+    transmission_blocking: 0.95  # From 80% in baseline
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s2u_x1
+  name: "Immunity infection blocking (policy 1, upper)"
+  vaccine_defintion:
+    transmission_blocking: 0.95  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s2u_x2
+  name: "Immunity infection blocking (policy 2, upper)"
+  vaccine_defintion:
+    transmission_blocking: 0.95  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s2u_x3
+  name: "Immunity infection blocking (policy 3, upper)"
+  vaccine_defintion:
+    transmission_blocking: 0.95  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s2u_x4
+  name: "Immunity infection blocking (policy 4, upper)"
+  vaccine_defintion:
+    transmission_blocking: 0.95  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532    
+- id: s2l_x0
+  name: "Immunity infection blocking (policy 0, lower)"
+  vaccine_defintion:
+    transmission_blocking: 0.6  # From 80% in baseline
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s2l_x1
+  name: "Immunity infection blocking (policy 1, lower)"
+  vaccine_defintion:
+    transmission_blocking: 0.6  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s2l_x2
+  name: "Immunity infection blocking (policy 2, lower)"
+  vaccine_defintion:
+    transmission_blocking: 0.6  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532    
+- id: s2l_x3
+  name: "Immunity infection blocking (policy 3, lower)"
+  vaccine_defintion:
+    transmission_blocking: 0.6  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+- id: s2l_x4
+  name: "Immunity infection blocking (policy 4, lower)"
+  vaccine_defintion:
+    transmission_blocking: 0.6  # From 80% in baseline
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  variants_novel: 
+  - id: novel1
+    import_day: 167
+  - id: novel2
+    import_day: 532
+# Sensitivity scenario: Variant timing
+- id: s3u_x0
+  name: "Variant timing (policy 0, upper)"
+  variants_novel:
+  - id: novel1
+    import_day: 197  # 1 month later
+  - id: novel2
+    import_day: 562  # 1 month later
+- id: s3u_x1
+  name: "Variant timing (policy 1, upper)"
+  variants_novel:
+  - id: novel1
+    import_day: 197  # 1 month later
+  - id: novel2
+    import_day: 562  # 1 month later
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s3u_x2
+  name: "Variant timing (policy 2, upper)"
+  variants_novel:
+  - id: novel1
+    import_day: 197  # 1 month later
+  - id: novel2
+    import_day: 562  # 1 month later
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s3u_x3
+  name: "Variant timing (policy 3, upper)"
+  variants_novel:
+  - id: novel1
+    import_day: 197  # 1 month later
+  - id: novel2
+    import_day: 562  # 1 month later
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s3u_x4
+  name: "Variant timing (policy 4, upper)"
+  variants_novel:
+  - id: novel1
+    import_day: 197  # 1 month later
+  - id: novel2
+    import_day: 562  # 1 month later
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+- id: s3l_x0
+  name: "Variant timing (policy 0, lower)"
+  variants_novel:
+  - id: novel1
+    import_day: 137  # 1 month earlier
+  - id: novel2
+    import_day: 502  # 1 month earlier
+- id: s3l_x1
+  name: "Variant timing (policy 1, lower)"
+  variants_novel:
+  - id: novel1
+    import_day: 137  # 1 month earlier
+  - id: novel2
+    import_day: 502  # 1 month earlier
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s3l_x2
+  name: "Variant timing (policy 2, lower)"
+  variants_novel:
+  - id: novel1
+    import_day: 137  # 1 month earlier
+  - id: novel2
+    import_day: 502  # 1 month earlier
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s3l_x3
+  name: "Variant timing (policy 3, lower)"
+  variants_novel:
+  - id: novel1
+    import_day: 137  # 1 month earlier
+  - id: novel2
+    import_day: 502  # 1 month earlier
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s3l_x4
+  name: "Variant timing (policy 4, lower)"
+  variants_novel:
+  - id: novel1
+    import_day: 137  # 1 month earlier
+  - id: novel2
+    import_day: 502  # 1 month earlier
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+# Sensitivity scenario: Variant severity
+- id: s4u_x0
+  name: "Variant severity (policy 0, upper)"
+  variants_novel:
+  - id: novel1
+    severity: 1.2  # +20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 1.44  # 1.2 x 1.2
+    import_day: 532
+- id: s4u_x1
+  name: "Variant severity (policy 1, upper)"
+  variants_novel:
+  - id: novel1
+    severity: 1.2  # +20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 1.44  # 1.2 x 1.2
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s4u_x2
+  name: "Variant severity (policy 2, upper)"
+  variants_novel:
+  - id: novel1
+    severity: 1.2  # +20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 1.44  # 1.2 x 1.2
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s4u_x3
+  name: "Variant severity (policy 3, upper)"
+  variants_novel:
+  - id: novel1
+    severity: 1.2  # +20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 1.44  # 1.2 x 1.2
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s4u_x4
+  name: "Variant severity (policy 4, upper)"
+  variants_novel:
+  - id: novel1
+    severity: 1.2  # +20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 1.44  # 1.2 x 1.2
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+- id: s4l_x0
+  name: "Variant severity (policy 0, lower)"
+  variants_novel:
+  - id: novel1
+    severity: 0.8  # -20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 0.64  # 0.8 x 0.8
+    import_day: 532
+- id: s4l_x1
+  name: "Variant severity (policy 1, lower)"
+  variants_novel:
+  - id: novel1
+    severity: 0.8  # -20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 0.64  # 0.8 x 0.8
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s4l_x2
+  name: "Variant severity (policy 2, lower)"
+  variants_novel:
+  - id: novel1
+    severity: 0.8  # -20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 0.64  # 0.8 x 0.8
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s4l_x3
+  name: "Variant severity (policy 3, lower)"
+  variants_novel:
+  - id: novel1
+    severity: 0.8  # -20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 0.64  # 0.8 x 0.8
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s4l_x4
+  name: "Variant severity (policy 4, lower)"
+  variants_novel:
+  - id: novel1
+    severity: 0.8  # -20 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    severity: 0.64  # 0.8 x 0.8
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+# Sensitivity scenario: Variant infectivity
+- id: s5u_x0
+  name: "Variant infectivity (policy 0, upper)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.4  # +15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.96  # 1.4 x 1.4
+    import_day: 532
+- id: s5u_x1
+  name: "Variant infectivity (policy 1, upper)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.4  # +15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.96  # 1.4 x 1.4
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s5u_x2
+  name: "Variant infectivity (policy 2, upper)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.4  # +15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.96  # 1.4 x 1.4
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s5u_x3
+  name: "Variant infectivity (policy 3, upper)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.4  # +15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.96  # 1.4 x 1.4
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s5u_x4
+  name: "Variant infectivity (policy 4, upper)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.4  # +15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.96  # 1.4 x 1.4
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+- id: s5l_x0
+  name: "Variant infectivity (policy 0, lower)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.1  # -15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.21  # 1.1 x 1.1
+    import_day: 532
+- id: s5l_x1
+  name: "Variant infectivity (policy 1, lower)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.1  # -15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.21  # 1.1 x 1.1
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s5l_x2
+  name: "Variant infectivity (policy 2, lower)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.1  # -15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.21  # 1.1 x 1.1
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s5l_x3
+  name: "Variant infectivity (policy 3, lower)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.1  # -15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.21  # 1.1 x 1.1
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s5l_x4
+  name: "Variant infectivity (policy 4, lower)"
+  variants_novel:
+  - id: novel1
+    infectivity: 1.1  # -15 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    infectivity: 1.21  # 1.1 x 1.1
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+# Sensitivity scenario: Variant immune-evasion
+- id: s6u_x0
+  name: "Variant immune-evasion (policy 0, upper)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.5  # +25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.5
+    import_day: 532
+- id: s6u_x1
+  name: "Variant immune-evasion (policy 1, upper)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.5  # +25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.5
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s6u_x2
+  name: "Variant immune-evasion (policy 2, upper)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.5  # +25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.5
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s6u_x3
+  name: "Variant immune-evasion (policy 3, upper)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.5  # +25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.5
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s6u_x4
+  name: "Variant immune-evasion (policy 4, upper)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.5  # +25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.5
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+- id: s6l_x0
+  name: "Variant immune-evasion (policy 0, lower)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.0  # -25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.0
+    import_day: 532
+- id: s6l_x1
+  name: "Variant immune-evasion (policy 1, lower)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.0  # -25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.0
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+- id: s6l_x2
+  name: "Variant immune-evasion (policy 2, lower)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.0  # -25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.0
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s6l_x3
+  name: "Variant immune-evasion (policy 3, lower)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.0  # -25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.0
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+  - id: group30_49
+    probability: 0.98
+  - id: group5_29
+    probability: 0.98
+- id: s6l_x4
+  name: "Variant immune-evasion (policy 4, lower)"
+  variants_novel:
+  - id: novel1
+    immuno_escape: 0.0  # -25 percentage points of baseline
+    import_day: 167
+  - id: novel2
+    immuno_escape: 0.0
+    import_day: 532
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group50_59
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group30_49
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+  - id: group5_29
+    probability: 0.98
+    cycle_period: 183  
+    start: 1
+    force_start: 1
+# Timing sensitivity: Seasonality effect 
+- id: t1u_m1
+  name: "Seasonality effect (6m before, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group50_59
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group30_49
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group5_29
+    probability: 0.98
+    force_start: 91
+    start: 91
+- id: t1u_m2
+  name: "Seasonality effect (5m before, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group50_59
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group30_49
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group5_29
+    probability: 0.98
+    force_start: 122
+    start: 122
+- id: t1u_m3
+  name: "Seasonality effect (4m before, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group50_59
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group30_49
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group5_29
+    probability: 0.98
+    force_start: 153
+    start: 153
+- id: t1u_m4
+  name: "Seasonality effect (3m before, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group50_59
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group30_49
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group5_29
+    probability: 0.98
+    force_start: 183
+    start: 183
+- id: t1u_m5
+  name: "Seasonality effect (2m before, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group50_59
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group30_49
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group5_29
+    probability: 0.98
+    force_start: 214
+    start: 214
+- id: t1u_m6
+  name: "Seasonality effect (1m before, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group50_59
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group30_49
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group5_29
+    probability: 0.98
+    force_start: 244
+    start: 244
+- id: t1u_m7
+  name: "Seasonality effect (Peak winter, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group50_59
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group30_49
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group5_29
+    probability: 0.98
+    force_start: 275
+    start: 275
+- id: t1u_m8
+  name: "Seasonality effect (1m after, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group50_59
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group30_49
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group5_29
+    probability: 0.98
+    force_start: 306
+    start: 306
+- id: t1u_m9
+  name: "Seasonality effect (2m after, upper)"
+  seasonality_scaler: 0.4 # +10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group50_59
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group30_49
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group5_29
+    probability: 0.98
+    force_start: 334
+    start: 334
+- id: t1l_m1
+  name: "Seasonality effect (6m before, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group50_59
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group30_49
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group5_29
+    probability: 0.98
+    force_start: 91
+    start: 91
+- id: t1l_m2
+  name: "Seasonality effect (5m before, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group50_59
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group30_49
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group5_29
+    probability: 0.98
+    force_start: 122
+    start: 122
+- id: t1l_m3
+  name: "Seasonality effect (4m before, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group50_59
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group30_49
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group5_29
+    probability: 0.98
+    force_start: 153
+    start: 153
+- id: t1l_m4
+  name: "Seasonality effect (3m before, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group50_59
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group30_49
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group5_29
+    probability: 0.98
+    force_start: 183
+    start: 183
+- id: t1l_m5
+  name: "Seasonality effect (2m before, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group50_59
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group30_49
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group5_29
+    probability: 0.98
+    force_start: 214
+    start: 214
+- id: t1l_m6
+  name: "Seasonality effect (1m before, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group50_59
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group30_49
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group5_29
+    probability: 0.98
+    force_start: 244
+    start: 244
+- id: t1l_m7
+  name: "Seasonality effect (Peak winter, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group50_59
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group30_49
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group5_29
+    probability: 0.98
+    force_start: 275
+    start: 275
+- id: t1l_m8
+  name: "Seasonality effect (1m after, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group50_59
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group30_49
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group5_29
+    probability: 0.98
+    force_start: 306
+    start: 306
+- id: t1l_m9
+  name: "Seasonality effect (2m after, lower)"
+  seasonality_scaler: 0.2 # -10 percentage points of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group50_59
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group30_49
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group5_29
+    probability: 0.98
+    force_start: 334
+    start: 334
+# Timing sensitivity: Number of doses
+- id: t2u_m1
+  name: "Daily doses (6m before, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group50_59
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group30_49
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group5_29
+    probability: 0.98
+    force_start: 91
+    start: 91
+- id: t2u_m2
+  name: "Daily doses (5m before, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group50_59
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group30_49
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group5_29
+    probability: 0.98
+    force_start: 122
+    start: 122
+- id: t2u_m3
+  name: "Daily doses (4m before, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group50_59
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group30_49
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group5_29
+    probability: 0.98
+    force_start: 153
+    start: 153
+- id: t2u_m4
+  name: "Daily doses (3m before, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group50_59
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group30_49
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group5_29
+    probability: 0.98
+    force_start: 183
+    start: 183
+- id: t2u_m5
+  name: "Daily doses (2m before, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group50_59
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group30_49
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group5_29
+    probability: 0.98
+    force_start: 214
+    start: 214
+- id: t2u_m6
+  name: "Daily doses (1m before, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group50_59
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group30_49
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group5_29
+    probability: 0.98
+    force_start: 244
+    start: 244
+- id: t2u_m7
+  name: "Daily doses (Peak winter, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group50_59
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group30_49
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group5_29
+    probability: 0.98
+    force_start: 275
+    start: 275
+- id: t2u_m8
+  name: "Daily doses (1m after, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group50_59
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group30_49
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group5_29
+    probability: 0.98
+    force_start: 306
+    start: 306
+- id: t2u_m9
+  name: "Daily doses (2m after, upper)"
+  booster_doses: 2250  # +50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group50_59
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group30_49
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group5_29
+    probability: 0.98
+    force_start: 334
+    start: 334
+- id: t2l_m1
+  name: "Daily doses (6m before, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group50_59
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group30_49
+    probability: 0.98
+    force_start: 91
+    start: 91
+  - id: group5_29
+    probability: 0.98
+    force_start: 91
+    start: 91
+- id: t2l_m2
+  name: "Daily doses (5m before, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group50_59
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group30_49
+    probability: 0.98
+    force_start: 122
+    start: 122
+  - id: group5_29
+    probability: 0.98
+    force_start: 122
+    start: 122
+- id: t2l_m3
+  name: "Daily doses (4m before, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group50_59
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group30_49
+    probability: 0.98
+    force_start: 153
+    start: 153
+  - id: group5_29
+    probability: 0.98
+    force_start: 153
+    start: 153
+- id: t2l_m4
+  name: "Daily doses (3m before, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group50_59
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group30_49
+    probability: 0.98
+    force_start: 183
+    start: 183
+  - id: group5_29
+    probability: 0.98
+    force_start: 183
+    start: 183
+- id: t2l_m5
+  name: "Daily doses (2m before, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group50_59
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group30_49
+    probability: 0.98
+    force_start: 214
+    start: 214
+  - id: group5_29
+    probability: 0.98
+    force_start: 214
+    start: 214
+- id: t2l_m6
+  name: "Daily doses (1m before, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group50_59
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group30_49
+    probability: 0.98
+    force_start: 244
+    start: 244
+  - id: group5_29
+    probability: 0.98
+    force_start: 244
+    start: 244
+- id: t2l_m7
+  name: "Daily doses (Peak winter, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group50_59
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group30_49
+    probability: 0.98
+    force_start: 275
+    start: 275
+  - id: group5_29
+    probability: 0.98
+    force_start: 275
+    start: 275
+- id: t2l_m8
+  name: "Daily doses (1m after, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group50_59
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group30_49
+    probability: 0.98
+    force_start: 306
+    start: 306
+  - id: group5_29
+    probability: 0.98
+    force_start: 306
+    start: 306
+- id: t2l_m9
+  name: "Daily doses (2m after, lower)"
+  booster_doses: 750  # -50% of baseline
+  n_days: 420
+  booster_rollout:
+  - id: group60comorbid
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group50_59
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group30_49
+    probability: 0.98
+    force_start: 334
+    start: 334
+  - id: group5_29
+    probability: 0.98
+    force_start: 334
+    start: 334
+
