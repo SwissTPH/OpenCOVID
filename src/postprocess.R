@@ -13,7 +13,7 @@ calculate_Reff = function(incidence, si, r_eff_window) {
   # See: https://cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
   
   # Number of daily observations
-  n_days = length(incidence$local)
+  n_days = length(incidence)
 
   # Use r_eff_window here for non-default time window
   r_win  = r_eff_window - 1
@@ -32,7 +32,7 @@ calculate_Reff = function(incidence, si, r_eff_window) {
                  t_end   = r_days + r_win)
   
   # Use estimate_R function from EpiEstim package
-  R_eff_df = estimate_R(incid  = incidence$local, 
+  R_eff_df = estimate_R(incid  = incidence, 
                         method = "parametric_si",
                         config = make_config(si_list))
   
@@ -46,7 +46,7 @@ calculate_Reff = function(incidence, si, r_eff_window) {
     right_join(data.frame(date = 1 : n_days), 
                by = "date") %>%
     arrange(date) %>%
-    mutate(incidence = incidence$local)
+    mutate(incidence = incidence)
   
   # Append serial distribution 
   R_info = list(R_eff = R_eff, si = si_dist)
@@ -147,7 +147,7 @@ format_results = function(o, f, results) {
   
   # Subset of metric details: coverages and scaled metrics
   metric_df = results$input$metrics$df %>%
-    select(metric, scaled, coverage)
+    select(metric, scale, coverage)
   
   # Scaler required (based on number simulated)
   scaler = f$person_days / results$input$population_size
@@ -158,9 +158,9 @@ format_results = function(o, f, results) {
   # For appropriate metrics, apply scaler and multiple by 100 
   output_df = output_df %>%
     left_join(metric_df, by = "metric") %>%
-    mutate(across(all_of(vars), function(x) ifelse(scaled, x * scaler, x)), 
+    mutate(across(all_of(vars), function(x) ifelse(scale, x * scaler, x)), 
            across(all_of(vars), function(x) ifelse(coverage, x * 100, x))) %>%
-    select(-scaled, -coverage)
+    select(-scale, -coverage)
   
   # ---- Select appropriate grouping ----
   

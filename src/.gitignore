@@ -1,12 +1,13 @@
 .Rproj.user
 .Rhistory
+*.nfs*
 *.RDS
 *.rds
 README.html
 /my_results.R
-config/my_options.csv
+config/my_options.yaml
 log/
+cache/
 input/*
 !input/demo.yaml
 output/
-

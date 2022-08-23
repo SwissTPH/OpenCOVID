@@ -12,7 +12,7 @@
 # ---------------------------------------------------------
 # Read yaml input file and perform some additional parsing
 # ---------------------------------------------------------
-parse_yaml = function(o, scenario, read_array = FALSE) {
+parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   
   # NOTE: The initial parsing work is done by read_yaml from yaml package
   
@@ -36,6 +36,11 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   #
   # NOTE: A few sanity checks on the user-defined inputs are perfomed here
   y = overwrite_defaults(y, y_user)
+  
+  # ---- Apply fitting/fitted parameters if provided ----
+  
+  # Apply fitted parameters (or simulate parameter sets when calibrating)
+  y = fit_yaml(o, y, fit)  # See calibration.R
   
   # ---- Apply scenario of choice ----
   
@@ -163,19 +168,13 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
     # Consider special case: load OCHI from OSI for given country
   } else if ("fn" %in% names(y$npi_effect)) {
     
-    message("  > Pulling OSI data")
+    # Check there is internet connection before pulling for API
+    # if (curl::has_internet())
+    try(pull_osi(o, y), silent = TRUE)
     
-    # Dates to load data for (only go as far as yesterday - we'll fill the rest)
-    date_from = format_date(y$npi_effect$start)
-    date_to   = min(date_from + y$n_days - 1, format_date(today() - 1))
-    
-    # Construct call to API endpoint and convert to json format
-    api_call = paste0(o$osi_api, date_from, "/", date_to)
-    api_data = fromJSON(rawToChar(httr::GET(api_call)$content))
-    
-    # Data is horribly hidden, a few lapply's needed to extract what we need
-    osi_fn = function(x) rbindlist(lapply(x, as.data.table), fill = TRUE)
-    osi_df = rbindlist(lapply(api_data$data, osi_fn), fill = TRUE)
+    # If running on the cluster we'll need to load from cache
+    # if (!curl::has_internet())
+    osi_df = try_load(o$pth$cache, "osi")
     
     # Filter for only this country
     osi_country = osi_df %>% 
@@ -258,7 +257,7 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
     assign_fn = paste0("durations_fn$", this_duration, " = function(id) {", bounded_fn, "}")
     
     # Evaluate the function assignment
-    eval(parse(text = assign_fn))
+    eval_str(assign_fn)
   }
   
   # Overwrite list with corresponding functions
@@ -268,11 +267,11 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
   
   # Points to evaluate (all of them)
   x_vals = paste(1, ":", n_days_total)
-
+  
   # Evaluate the booster dose function at these points
   waning_profile = parse_fn(fn_args = y$acquired_immunity,
                             along   = list(x = x_vals))
-
+  
   # This is our vaccine booster profile
   y$acquired_immunity = waning_profile
   
@@ -329,7 +328,7 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
     mutate(import_number = ceiling(import_number / 1e5 * y$population_size), 
            infectivity   = infectivity * variant_primary$infectivity, 
            severity      = severity    * variant_primary$severity) # %>%
-    # arrange(import_day)
+  # arrange(import_day)
   
   # Concatenate variants
   #
@@ -559,14 +558,11 @@ parse_yaml = function(o, scenario, read_array = FALSE) {
     select(priority_group = id, available, vaccine_condition)
   
   # Long datatable of priority groups and treatment probabilities
-  #
-  # NOTE: Efficacy is factored in here too (so 'treat_prop' is effective treatment probability)
   y$treat_prob = treat_df %>%
     select(-available, -vaccine_condition) %>%
     pivot_longer(cols = -id) %>%
     mutate(name  = str_remove(name, "prob_"), 
-           value = ifelse(is.na(value), 0, 
-                          value * y$treat_efficacy)) %>%
+           value = ifelse(is.na(value), 0, value)) %>%
     rename(priority_group = id, 
            disease_state  = name, 
            treat_prob     = value) %>%
@@ -645,14 +641,14 @@ overwrite_defaults = function(y, y_overwrite) {
   # User defined scenarios can now be removed from this list
   y_overwrite$scenarios = NULL
   
-  # ---- Special case: calibration ----
+  # ---- Special case: calibration parameters ----
   
   # If user has defined a calibration block, use this directly
-  if (!is.null(y_overwrite$calibration))
-    y$calibration = y_overwrite$calibration
+  if (!is.null(y_overwrite$calibration_parameters))
+    y$calibration_parameters = y_overwrite$calibration_parameters
   
   # Any user defined calibration can now be removed from this list
-  y_overwrite$calibration = NULL
+  y_overwrite$calibration_parameters = NULL
   
   # ---- Special case: demography ----
   
@@ -695,7 +691,7 @@ overwrite_defaults = function(y, y_overwrite) {
     #
     # NOTE: No checks needed as key-pairs can differ depending on function defined
     for (fn in fn_items)
-      eval(parse(text = paste0("y$", fn, " = y_overwrite$", fn)))
+      eval_str("y$", fn, " = y_overwrite$", fn)
     
     # All items that pertain to a function call
     fn_item_idx = paste0("^") %>%
@@ -711,8 +707,8 @@ overwrite_defaults = function(y, y_overwrite) {
   for (overwrite_item in overwrite_items) {
     
     # The value to overwrite with, and the original (to check for consistency)
-    overwrite_value = eval(parse(text = paste0("y_overwrite$", overwrite_item)))
-    default_value   = eval(parse(text = paste0("y$", overwrite_item)))
+    overwrite_value = eval_str("y_overwrite$", overwrite_item)
+    default_value   = eval_str("y$", overwrite_item)
     
     # Normally we will be replacing some non-trivial value
     if (length(default_value) > 0) {
@@ -738,7 +734,7 @@ overwrite_defaults = function(y, y_overwrite) {
     as_class = paste0("get('as.", class(default_value), "')(", overwrite_value, ")")
     
     # Apply the assignment using eval - this is the only way I can think of for n-nested lists
-    eval(parse(text = paste0("y$", overwrite_item, " = ", as_class)))
+    eval_str("y$", overwrite_item, " = ", as_class)
   }
   
   return(y) 
@@ -837,7 +833,7 @@ name_lists = function(y, y_overwrite = NULL) {
         param_class = class(param_format[[1]][[param_el]])
         
         # Reset value by trivialising, but retraining class
-        eval(parse(text = paste0("param_format[[1]]$", param_el, " = ", param_class, "(0)")))
+        eval_str("param_format[[1]]$", param_el, " = ", param_class, "(0)")
       }
       
       # Set up the necessary number of items and apply the basic structure
@@ -875,7 +871,7 @@ parse_fn = function(fn_args, along = NULL, evaluate = TRUE) {
   
   # Either return that string evaluated...
   if (evaluate == TRUE) {
-    fn_eval = eval(parse(text = fn_call))
+    fn_eval = eval_str(fn_call)
     
     return(fn_eval)
     
@@ -981,29 +977,24 @@ parse_arrays = function(o, y, scenario) {
   # Loop through all parent array scenarios
   for (parent in parents) {
     
-    # Array items associated with this parent
-    array_scen_idx   = grepl(paste0("^", parent, "\\."), array_items)
-    array_scen_items = str_remove(array_items[array_scen_idx], paste0(parent, "\\."))
+    # Array variables associated with this parent
+    array_vars_idx = grepl(paste0("^", parent, "\\."), array_items)
+    array_vars = array_items[array_vars_idx] %>%
+      str_remove(paste0(parent, "\\.")) %>%
+      str_remove("\\.array\\..*") %>%
+      str_replace_all("\\.", "$") %>%
+      unique()
     
-    # Strip away to leave unique variables we have arrays for
-    array_vars = unique(str_remove(array_scen_items, "\\.array\\..*"))
-    array_vars = str_replace_all(array_vars, "\\.", "$")
-    
-    # Preallocate lists to store array IDs, names, and values
-    array_vals = array_ids = array_names = list()
-    
-    # Preallocate lists to store array variable IDs and names
-    var_ids = var_names = character()
-    
-    # Loop through variables that have arrays
-    for (array_var in array_vars) {
+    # Loop through these variables
+    vars_list = list()
+    for (var in array_vars) {
       
       # String which - when evaluated - indexes the deep nested array details for this variable 
-      array_str = paste("y$scenarios", parent, array_var, "array", sep = "$")
+      array_str = paste("y$scenarios", parent, var, "array", sep = "$")
       
       # Evaluate the string to obtain a list of inputs to R's seq function
-      array_eval = eval(parse(text = array_str))
-
+      array_eval = eval_str(array_str)
+      
       # Remove the ID and name items, and set the function name to seq
       array_fn = c(fn = "seq", list.remove(array_eval, c("id", "name")))
       
@@ -1013,37 +1004,72 @@ parse_arrays = function(o, y, scenario) {
       # Use child scenario indices for IDs
       all_ids = paste0(array_eval$id, 1 : length(all_vals))
       
-      # Store these IDs and values in seperate lists
-      array_ids[[array_var]]  = all_ids
-      array_vals[[array_var]] = all_vals
+      # Store datatable of all key details
+      var_df = data.table(dim  = array_eval$id, 
+                          id   = all_ids, 
+                          var  = var, 
+                          val  = all_vals, 
+                          desc = array_eval$name) 
       
-      # Also store child scenario names as a named vector
-      array_names[[array_var]] = setNames(paste0(array_eval$name, ": ", all_vals), all_ids)
+      # Store naming convention (if it has been provided)
+      if (!is.null(array_eval$name))
+        var_df$name = paste0(array_eval$name, ": ", all_vals)
       
-      # Also store full name of variable as defined by user
-      var_ids   = c(var_ids,   array_eval$id)
-      var_names = c(var_names, array_eval$name)
+      # Store datatable
+      vars_list[[var]] = var_df
     }
     
-    # Now take the full factorial of IDs and associated names
-    array_scen_ids   = unite(expand.grid(array_ids),   "x", sep = ".")$x
-    array_scen_names = unite(expand.grid(array_names), "x", sep = ", ")$x
+    # Datatable of all values of each variable
+    vars_df = rbindlist(vars_list, fill = TRUE) %>%
+      mutate(across(c(dim, id), fct_inorder))
     
-    # Do the same for the values, and concatenate it all together
-    array_scen_df = expand.grid(array_vals) %>%
-      mutate(id   = paste0(parent, ".", array_scen_ids),
-             name = paste0(scenarios_name[[parent]], 
-                           " (", array_scen_names, ")"), 
-             parent = parent)
+    # Expand grid to all individual array elements
+    array_scen_df = vars_list %>%
+      lapply(function(x) x$id) %>%
+      unique() %>%
+      expand.grid() %>%
+      unite("x", sep = ".", remove = FALSE) %>%
+      pivot_longer(-x, names_to = "var_ref", 
+                   values_to    = "id") %>%
+      left_join(vars_df, by = "id") %>%
+      pivot_wider(id_cols = x, 
+                  names_from  = var, 
+                  values_from = val) %>%
+      mutate(id = paste0(parent, ".", x)) %>%
+      select(id, all_of(array_vars)) %>%
+      as.data.table()
     
+    # Extract full names of all array scenarios
+    array_names = vars_df %>%
+      group_by(id) %>%
+      slice_head(n = 1) %>%
+      split(., f = .$dim) %>%
+      lapply(function(x) x$name) %>%
+      expand.grid() %>%
+      unite("names", sep = ", ") %>%
+      pull(names)
+    
+    # Ensure we have equal numbers
+    #
+    # NOTEL: This error will also be thrown if dim parts are of different sizes
+    if (nrow(array_scen_df) != length(array_names))
+      stop("Inconsistent number of array scenario elements")
+    
+    # Apply names of elements to array datatable
+    array_df = array_scen_df %>%
+      mutate(name = paste0(scenarios_name[[parent]], 
+                           " (", array_names, ")"), 
+             parent = parent) %>%
+      select(id, parent, all_of(array_vars), name)
+
     # ---- Construct child scenarios ---- 
     
     # Store details of the parent array scenario
     array_details = y$scenarios[[parent]]
     
     # Loop through each individual child
-    for (i in 1 : nrow(array_scen_df)) {
-      this_scen = array_scen_df[i, ]
+    for (i in 1 : nrow(array_df)) {
+      this_scen = array_df[i, ]
       
       # Start with the basic structure of the parent
       scen_details = list_modify(array_details, 
@@ -1058,17 +1084,14 @@ parse_arrays = function(o, y, scenario) {
         this_val = val_df[[val_name]]
         
         # Class of parameter in baseline - could be numeric or integer
-        param_class = class(eval(parse(text = paste0("y$", val_name))))
+        param_class = class(eval_str("y$", val_name))
         
         # If integer, ensure consistent class
         if (param_class == "integer")
           this_val = paste0("as.integer(", this_val, ")")
         
         # String to be evaluated to set the individual value
-        val_str = paste0("scen_details$", val_name, " = ", this_val)
-        
-        # Evaluate the string to set the value
-        eval(parse(text = val_str))
+        eval_str("scen_details$", val_name, " = ", this_val)
       }
       
       # Append this child scenario
@@ -1084,18 +1107,26 @@ parse_arrays = function(o, y, scenario) {
     if (scenario != "*read*") {
       
       # Initiate array info list with basic scenario ID dataframe
-      array_info = list(meta = select(array_scen_df, parent, scenario = id, name))
+      array_info = list(meta = select(array_df, parent, scenario = id, name))
       
       # Append info about the variables - IDs and names
-      array_info$vars = data.table(variable_id   = var_ids, 
-                                   variable_name = var_names, 
-                                   variable_call = array_vars)
+      array_info$vars = vars_df[, .(dim, desc)] %>%
+        rename(variable_id   = dim, 
+               variable_name = desc) %>%
+        group_by(variable_id) %>%
+        slice_head(n = 1) %>%
+        ungroup() %>%
+        as.data.table()
+      
+      # Dimension details
+      dim_df = vars_df[!duplicated(vars_df$dim), .(dim, var)]
       
       # Store all the values to be simulated
-      array_info$values = array_scen_df %>%
-        select(scenario = id, all_of(array_vars)) %>%
-        rename(setNames(array_vars, var_ids)) %>%
-        pivot_longer(cols = -scenario, names_to = "variable_id") %>%
+      array_info$values = array_df %>%
+        rename(setNames(dim_df$var, dim_df$dim)) %>%
+        select(scenario = id, all_of(dim_df$dim)) %>%
+        pivot_longer(cols = -scenario, 
+                     names_to = "variable_id") %>%
         as.data.table()
       
       # Save this info for use when collating all results
@@ -1143,11 +1174,24 @@ parse_model_states = function(o, y) {
 # ---------------------------------------------------------
 parse_model_metrics = function(o, y) {
   
-  # Apply formating, convert to dt, append descriptions, and filter
-  metrics_df = rbindlist(y$model_metrics, fill = TRUE) %>% 
+  # Metric definitions
+  metrics_def = read_yaml(o$pth$metrics)
+  
+  # Metric details specified by user
+  metrics_user = rbindlist(y$model_metrics, fill = TRUE) %>% 
+    {if (!"by" %in% names(.)) mutate(., by = NA) else .} %>% 
     mutate(metric = names(y$model_metrics), .before = 1) %>% 
-    rename(grouping = by) %>% 
-    right_join(read_excel(o$pth$metrics, 1), by = "metric") %>%
+    select(metric, grouping = by, report)
+  
+  # Ensure that if 'none' is not specified if grouping
+  group_none = metrics_user[grepl("none", grouping) & grouping != "none", metric]
+  if (length(group_none) > 0)
+    stop("Illegal use of 'by = none': ", paste(group_none, collapse = ", "))
+  
+  # Apply formating, convert to dt, append descriptions, and filter
+  metrics_df = list2dt(metrics_def, fill = TRUE) %>%
+    mutate(metric = names(metrics_def), .before = 1) %>%
+    left_join(metrics_user, by = "metric") %>% 
     mutate_if(is.numeric, as.logical) %>%
     mutate(grouping = ifelse(coverage == TRUE & grouping != "none", 
                              paste0("none, ", grouping), grouping),                 # See note 1
@@ -1155,56 +1199,60 @@ parse_model_metrics = function(o, y) {
            grouping = ifelse(metric == "n_infections", "infections", grouping),     # See note 3
            grouping = ifelse(is.na(grouping), "na", grouping)) %>%
     filter(report == TRUE) %>%
-    select(-report, -notes)
+    arrange(factor(metric, levels = metrics_user[report == TRUE]$metric)) %>%  # Order by user construction
+    select(-report)
   
   # NOTES: 
   #  1) We can't aggregate for coverages due to different denominators, so we'll
   #     need to explictly record total coverages aside from coverages by group
   #  2) Variant prevalence is a special case: group by 'variant' only
   #  3) Number of infections is also a special case: group by 'infections' only
-
+  
   # ---- Check groupings ----
   
   # Ensure all 'non-grouped' metrics are NA
-  nongroup_metrics = metrics_df[grouped == FALSE & grouping != "na", metric]
+  nongroup_metrics = metrics_df[group_by == "na" & grouping != "na", metric]
   if (length(nongroup_metrics) > 0)
     stop("Metrics can not be 'grouped by': ", paste(nongroup_metrics, collapse = ", "))
   
   # Ensure all group-able metrics are either specified or set to 'none'
-  group_metrics = metrics_df[grouped == TRUE & grouping == "na", metric]
+  group_metrics = metrics_df[group_by != "na" & grouping == "na", metric]
   if (length(group_metrics) > 0)
     stop("Metrics must be 'grouped by' (use by = 'none' to turn off): ", 
          paste(group_metrics, collapse = ", "))
   
   # All the various types of groupings requested by the user
-  groupings = str_split(str_remove_all(metrics_df$grouping, " "), ",")
+  group_user = str_split(str_remove_all(metrics_df$grouping, " "), ",")
+  group_def  = str_split(str_remove_all(metrics_df$group_by, " "), ",")
   
   # Metrics with grouping (repeat elements if we have multiple groupings)
-  grouping_metrics = rep(metrics_df$metric, unlist(lapply(groupings, length)))
+  group_user_metrics = rep(metrics_df$metric, unlist(lapply(group_user, length)))
+  group_def_metrics  = rep(metrics_df$metric, unlist(lapply(group_def,  length)))
   
   # Convert to named vector - used in update_output in model.R
-  all_groupings = setNames(unlist(groupings), grouping_metrics)
+  all_groupings = setNames(unlist(group_user), group_user_metrics)
   
-  # Groupings known and understood by the model
-  known_groupings = c("age", "variant", "priority_group", "infections", "none", "na")
+  # Convert to metric::grouping format to check for consistency
+  all_group_user = paste(group_user_metrics, unlist(group_user), sep = "::")
+  all_group_def  = paste(group_def_metrics,  unlist(group_def),  sep = "::")
   
   # Are any unknown
-  unknown_groupings = setdiff(unique(all_groupings), known_groupings)
+  unknown_groupings = setdiff(all_group_user, all_group_def)
   if (length(unknown_groupings) > 0)
-    stop("Unknown metric grouping(s): ", paste(unknown_groupings, collapse = ", "))
+    stop("Illegal metric grouping(s): ", paste(unknown_groupings, collapse = ", "))
   
   # ---- Parse the input ----
   
   # Store the key details - metric groupings and whether temporal and/or cumulative
-  y$metrics$df = select(metrics_df, -description, -cumulative_description)
+  y$metrics$df = select(metrics_df, -group_by, -label, -label_cum)
   y$metrics$groupings = all_groupings
   
   # Store metric dictionary ('description' column)
-  y$dict$metric = setNames(metrics_df$description, metrics_df$metric)
+  y$dict$metric = setNames(metrics_df$label, metrics_df$metric)
   
-  # Also store cumulative metric dictionary ('cumulative_description' column)
-  cumulative_df = filter(metrics_df, cumulative == TRUE)
-  y$dict$cumulative = setNames(cumulative_df$cumulative_description, cumulative_df$metric)
+  # Also store cumulative metric dictionary ('label_cum' column)
+  cum_df = filter(metrics_df, cumulative == TRUE)
+  y$dict$cumulative = setNames(cum_df$label_cum, cum_df$metric)
   
   # Remove redundant items
   y[c("model_metrics")] = NULL

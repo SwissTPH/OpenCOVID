@@ -13,70 +13,66 @@ run_cluster_job = function(o, job_type, task_id) {
   # ---- Run fitting samples -----
   
   # Run fitting samples used to train model emulator
-  if (grepl("fitting", job_type)) {
+  if ((grepl("fitting", job_type))) {
     
-    # Load full factorial set of cantons, seeds, and simulation names
-    sim_df = readRDS(paste0(o$pth$fit_samples, "all_samples.rds"))
+    # Parse (re)sampling number from input
+    r_idx = unlist(str_split(job_type, "::"))[2]
+    r_val = as.numeric(str_remove(r_idx, "r"))
     
-    # Select sims associated with this param ID
-    param_df = filter(sim_df, param_id == task_id)
+    # Load parameter set samples
+    sim_df = try_load(o$pth$fitting, paste0(r_idx, "_paramsets"))
     
-    # Preallocate output dataframe
-    output_df = param_df %>%
-      select(param_id, seed) %>%
-      mutate(r_eff = NA)
+    # Select parameter set associated with this task ID (all seeds)
+    param_df = sim_df[task_id, ]
+    param_id = param_df$param_id
     
     # Parameter values in list format (for input into model)
     param_list = param_df %>%
-      select(-param_id, -seed) %>%
+      select(-round, -param_id, -seed) %>%
       unique() %>%
       as.list()
     
-    # Append number of days to simulate for (not many needed for fitting Reff)
-    fit_list = list.append(param_list, n_days = max(o$fit_days))
+    # Append flag that we want to perform fit
+    fit_list = list.append(param_list, .perform_fit = TRUE)
     
-    # Loop through seeds
-    for (seed in param_df$seed) {
-      
-      message("  > Seed ", seed, " of ", o$emulator_seeds)
-      
-      # TODO: Put model inside trycatch - it's ok if we get occasional error
-      
-      # Simulate model
-      result = model(o, "baseline", 
-                     seed = seed, 
-                     fit  = fit_list, 
-                     verbose = "none")
-      
-      # Extract mean R_eff over time points of interest
-      r_eff_df = filter(result$output, date %in% o$fit_days)
-      
-      # Store in output dataframe
-      output_df$r_eff[seed] = mean(r_eff_df$value)
-    }
+    message(" - Running model")
     
-    # Save sample outputs as an RDS file
-    saveRDS(output_df, paste0(o$pth$fit_samples, "sample_", task_id, ".rds"))
+    # Simulate model with this parameter set
+    result = model(o, "baseline", 
+                   seed = param_df$seed, 
+                   fit  = fit_list, 
+                   verbose = "bar")
+    
+    # Extract metrics of interest over time points of interest
+    output_df = result$output %>%
+      filter(!is.na(value)) %>%
+      select(seed, metric, date, value) %>%
+      mutate(param_id = !!param_id, 
+             round    = r_val, 
+             .before  = 1)
+    
+    # Save sample output as an RDS file
+    saveRDS(output_df, paste0(o$pth$fit_samples, param_id, ".rds"))
   }
   
   # ---- Run simulations -----
   
   # Run all user-defined scenarios
-  if (grepl("scenarios", job_type)) {
+  if (job_type == "scenarios") {
     
-    # Load full factorial set of cantons, seeds, and simulation names
-    sim_df = readRDS(paste0(o$pth$simulations, "all_simulations.rds"))
+    # Load full set of simulations to run
+    sim_df = try_load(o$pth$simulations, "all_simulations")
     
     # Select analysis to run based on job ID
     this_sim = sim_df[task_id, ]
     
     # Loaded fitted model parameters
-    fit_result = readRDS(paste0(o$pth$fitting, "fit_result.rds"))
+    fit_result = load_calibration(o)
     
     # Simulate the model for this scenario and this seed (see model.R)
     result = model(o, this_sim$scenario, 
                    seed = this_sim$seed, 
-                   fit  = fit_result$result,
+                   fit  = fit_result$best,
                    verbose = "date") 
     
     # Save model inputs and outputs as an RDS file
@@ -86,10 +82,10 @@ run_cluster_job = function(o, job_type, task_id) {
   # ---- Summarise simulations ----
   
   # Summarise all simulations for a scenarios
-  if (grepl("summarise", job_type)) {
+  if (job_type == "summarise") {
     
-    # Load full set of simulations
-    sim_df = readRDS(paste0(o$pth$simulations, "all_simulations.rds"))
+    # Load full set of simulations to summarise
+    sim_df = try_load(o$pth$simulations, "all_simulations")
     
     # Scenario to summarise
     scenario_name = unique(sim_df$scenario)[task_id]

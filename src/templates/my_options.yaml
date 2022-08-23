@@ -1,0 +1,20 @@
+---
+
+###########################################################
+# MY_OPTIONS
+#
+# Any numerical, logical, or character value or vector defined
+# in the main set_options() function can be overridden through
+# this personal, non-mandatory file. Note that this my_options
+# file is git ignored (indeed, that is the very point of such a
+# file), so the values you set here will not clash with personal
+# options set by other users.
+#
+# To you this file, copy into the /config/ subdirectory
+#
+###########################################################
+
+example_option: "example_value"
+
+another_example: yes
+

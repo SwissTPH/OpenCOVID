@@ -11,19 +11,24 @@
 # ---------------------------------------------------------
 run_model_test = function(o, scenario = "baseline") {
   
-  # TODO: Use calibrated contacts if it exists
-  
   # Only continue if specified by do_step
   if (!is.element(0, o$do_step)) return()
   
   message("* Testing single model simulation")
   
+  # Load calibration result (if it exists)
+  fit = load_calibration(o, throw_error = FALSE)
+
   # Run model for the defined scenario (see model.R)
-  result = model(o, scenario, seed = 1, do_plot = FALSE, verbose = "bar")
-  
+  result = model(o, scenario,
+                 seed    = 1,
+                 fit     = fit$best,
+                 do_plot = FALSE,
+                 verbose = "bar")
+
   # Aggregative and summarise raw model output (see postprocess.R)
   result = process_results(result, result$output)
-  
+
   # Save result as an RDS file
   saveRDS(result, paste0(o$pth$testing, "model_test.rds"))
   
@@ -35,7 +40,7 @@ run_model_test = function(o, scenario = "baseline") {
   # Network figure 1) Series of network-related properties
   fig_name = c("Test simulation", scenario, "Network properties")
   plot_network_properties(o, fig_name, result$input, result$network)
-  
+
   # Network figure 2) Age matrix of contact density per age
   fig_name = c("Test simulation", scenario, "Contact matrices")
   plot_contact_matrices(o, fig_name, result$input, result$network)
@@ -45,6 +50,11 @@ run_model_test = function(o, scenario = "baseline") {
   # Plot metrics against the data
   fig_name = c("Test simulation", scenario)
   plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario)
+
+  # Plot all metrics in cumulative form
+  fig_name = c("Test simulation", scenario, "Cumulative")
+  plot_temporal(o, fig_name, plot_file = result, alt_baseline = scenario,
+                cumulative = TRUE)
   
   # Plot variants over time the data
   fig_name = c("Test simulation", scenario, "Variants")

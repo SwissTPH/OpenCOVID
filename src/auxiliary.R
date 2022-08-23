@@ -57,7 +57,7 @@ clf = function() graphics.off()
 # ---------------------------------------------------------
 # Create colour scheme
 # ---------------------------------------------------------
-colour_scheme = function(map, pal = NULL, n = 1) {
+colour_scheme = function(map, pal = NULL, n = 1, ...) {
   
   # Has colour palette been defined
   if (is.null(pal)) {
@@ -76,25 +76,31 @@ colour_scheme = function(map, pal = NULL, n = 1) {
   
   # Built in colour schemes
   if (map == "base")
-    colours = get(pal)(n)	
+    colours = get(pal)(n, ...)	
   
   # A load of colour maps from the pals package
   #
   # See: https://www.rdocumentation.org/packages/pals/versions/1.6
   if (map == "pals")
-    colours = get(pal)(n)
+    colours = get(pal)(n, ...)
+  
+  # Stylish HCL-based colour maps
+  #
+  # See: https://colorspace.r-forge.r-project.org/articles/hcl_palettes.html
+  if (grepl("_hcl$", map))
+    colours = get(map)(palette = pal, n = n, ...)
   
   # Colour Brewer colour schemes
   if (map == "brewer")
-    colours = brewer_pal(palette = first_cap(pal))(n)
+    colours = brewer_pal(palette = first_cap(pal), ...)(n)
   
   # Viridis colour schemes
   if (map == "viridis")
-    colours = viridis_pal(option = pal)(n)
+    colours = viridis_pal(option = pal, ...)(n)
   
   # Throw an error if colours not yetr defined
   if (is.null(colours))
-    stop("Colour map '", map, "' not recognised (supported: base, pals, brewer, viridis)")
+    stop("Colour map '", map, "' not recognised (supported: base, pals, hcl, brewer, viridis)")
   
   return(colours)
 }
@@ -112,6 +118,12 @@ create_bash_log = function(pth, log = NULL, err = NULL) {
   }
   return(paste0(pth, log))
 }
+
+# ---------------------------------------------------------
+# Evaluate a string (in calling function environment) using eval
+# ---------------------------------------------------------
+eval_str = function(...)
+  eval(parse(text = paste0(...)), envir = parent.frame(n = 1))
 
 # ---------------------------------------------------------
 # Biphasic exponential function
@@ -343,6 +355,15 @@ quiet = function(x) {
 sample_vec = function(x, ...) x[sample.int(length(x), ...)]
 
 # ---------------------------------------------------------
+# Allow scale_fill_fermenter to accept custom palettes
+# ---------------------------------------------------------
+scale_fill_fermenter_custom = function(cols, guide = "coloursteps", na.value = "grey50", ...) {
+  palette = ggplot2:::binned_pal(scales::manual_pal(cols))
+  g = binned_scale("fill", "fermenter", palette, guide = guide, na.value = na.value, ...)
+  return(g)
+}
+
+# ---------------------------------------------------------
 # Initiate progress bar with normal-use options
 # ---------------------------------------------------------
 start_progress_bar = function(n_tasks) {
@@ -487,7 +508,7 @@ try_load = function(pth, file, msg = NULL, type = "rds", throw_error = TRUE, sep
       error = function(e) {
         
         # Throw descriptive error if desired
-        if (throw_error) 
+        if (throw_error == TRUE) 
           stop(msg, " [unreadable: ", file_name, "]")
       }
     )

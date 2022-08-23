@@ -26,10 +26,10 @@ source("dependencies.R")
 if (interactive()) clf()  # Close figures
 if (interactive()) clc()  # Clear console
 
-message("Running OpenCOVID v2.2")
+message("Running OpenCOVID v3.0 alpha")
 
 # Set options (see options.R)
-o = set_options(do_step = 0)
+o = set_options(do_step = 3)
 
 # Step 0) Test run a single simulation
 run_model_test(o)  # See unit_tests.R

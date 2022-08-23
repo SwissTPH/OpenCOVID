@@ -30,7 +30,7 @@ run_scenarios = function(o) {
   # ... and potentially different parameter sets (sampled from fitted posteriors)
   param_id = str_pad(0 : o$n_parameter_samples, 4, pad = "0")
   
-  # Full factorial set of cantons, parameter sets, seeds, and simulations
+  # Full factorial set of parameter sets, seeds, and scenarios
   all_simulations = expand_grid(param_id = param_id, 
                                 seed     = seed_id, 
                                 scenario = all_scenarios)
@@ -109,9 +109,8 @@ run_scenarios = function(o) {
 # ---------------------------------------------------------
 check_fit = function(o) {
   
-  # Load model fitting result - throw an error if it doesn't exist
-  err_msg = "Cannot find a fitting file for this analysis - have you run step 1?"
-  fit_result = try_load(o$pth$fitting, "fit_result", msg = err_msg)
+  # Load fitting result file
+  fit_result = load_calibration(o)
   
   # For quick results, user can choose to skip this check
   if (o$check_fit_consistency == FALSE)
@@ -191,7 +190,7 @@ check_existing = function(o, sim_df) {
       message("  > Checking consistency of YAML files")
       
       # Load fitted parameters - we'll need to rerun if these have changed
-      fit_result = try_load(o$pth$fitting, "fit_result")$result
+      fit_best = load_calibration(o)$best
       
       # Assess each scenario that already exists
       for (scenario_exist in unique(sims_exist$scenario)) {
@@ -204,7 +203,7 @@ check_existing = function(o, sim_df) {
         test_input = parse_yaml(o, scenario_exist, read_array = TRUE)$parsed
         
         # Apply calibrated parameters - important that these are the same
-        test_input[names(fit_result)] = fit_result
+        test_input[names(fit_best)] = fit_best
         
         # Compare all items in these two lists - aside from calibrated parameters
         check_flag = setequal(check_input, test_input)

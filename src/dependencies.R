@@ -35,6 +35,8 @@ source("parse_input.R")
 source("model.R")
 source("networks.R")
 source("calibration.R")
+source("load_data.R")
+source("emulator.R")
 source("asd.R")
 source("scenarios.R")
 source("cluster_jobs.R")
@@ -70,6 +72,7 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "data.table",     # Next generation dataframes
              "useful",         # General helper functions (eg compare.list)
              "rlist",          # List-related helper functions (eg list.remove)
+             "gsubfn",         # Output multiple variables from functions
              "httr",           # Read data from API endpoint
              "jsonlite",       # Convert data to/from json format
              "rio",            # Data loading functionality
@@ -87,6 +90,7 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "ggh4x",          # Plotting functionality (flexible faceting)
              "ggtext",         # Plotting functionality (use markdown in labels)
              "pals",           # Colour palettes
+             "colorspace",     # Colour palettes
              "GGally",         # Network plotting
              "igraph",         # Network plotting
              "RColorBrewer",   # Network plotting colour palettes

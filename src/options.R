@@ -5,7 +5,7 @@
 #
 # Any numerical, logical, or character value or vector defined
 # in the main set_options() function can be overridden through
-# the non-mandatory \config\my_options.csv file. Note that
+# the non-mandatory \config\my_options.yaml file. Note that
 # this my_options file is git ignored (indeed, that is the very
 # point of such a file), so each user will need to create one.
 #
@@ -38,37 +38,34 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # API endpoint for national-level Oxford Stringency Index data
   o$osi_api = "https://covidtrackerapi.bsg.ox.ac.uk/api/v2/stringency/date-range/"
   
+  # TEMP: Some Austrlian (Northern Territory) data to play with
+  o$covidbaseau_api = "https://covidbaseau.com/historical/Hospitalisations%20NT.csv"
+  
   # ---- Calibration settings ----
   
   # Whether fitting should be reproducible
   o$fit_reproducible = TRUE
   
-  # Take R_eff as the mean across these days
-  #
-  # NOTE: R_eff is calculated over a 7-day rolling window
-  o$fit_days = 10 : 15
+  # Force the regeneration of synthetic data by running the model
+  o$force_regenerate_synthetic = FALSE
   
-  # Number of samples and seeds for training model emulator
-  o$emulator_samples = 400
-  o$emulator_seeds = 20
+  # Overwrite existing samples
+  o$overwrite_samples = FALSE
   
   # Accept up to x% of samples failing
   o$sample_err_tol = 0.05  # 1-5% is reasonable
   
-  # Test-train split of samples for training model emulator
-  o$test_train_split = 0.15  # 15-20% is reasonable
+  # The 'best' parameter set to take from calibration process
+  #
+  # OPTIONS: 
+  #   "emulated" := Global minimum of emulated space
+  #  "simulated" := Lowest objective value from all already simualted parameter sets
+  o$best_param_set = "emulated"
   
-  # Select GP kernel function
-  o$gp_kernel = "Matern5_2" # "Gaussian", "Matern5_2", or "Matern3_2"
+  # Check calibration file consistency before simulating scenarios
+  o$check_fit_consistency = TRUE
   
-  # Maximum number of iterations of GP algorithm
-  o$gp_max_iter = 1000
   
-  # Number of times to perform optimisation
-  o$optim_runs = 20
-  
-  # Number of ASD iterations
-  o$fit_iters_max = 100
   
   # Selection of model parameters that can be changed without the need for re-fitting
   #
@@ -82,12 +79,11 @@ set_options = function(do_step = NA, quiet = FALSE) {
                              "testing", 
                              "isolation")
   
-  # Check calibration file consistency before simulating scenarios
-  o$check_fit_consistency = TRUE
+  
   
   # ---- Uncertainty settings ----
   
-  # Which parameter set to use for 'best estimate' projection
+  # Statistical summary to use for 'best estimate' projection
   #
   # OPTIONS:
   #  "median" := Median of uncertainty simulations (stochastic and parameter uncertainty)
@@ -158,8 +154,8 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$max_scenarios = 25
   
   # Colour packages and palettes for scenarios, metrics, and cantons (see colour_scheme in myRfunctions.R)
-  o$palette_scenario = "pals::cols25" # "brewer::dark2"
-  o$palette_metric   = "base::rainbow"
+  o$palette_scenario = "pals::cols25"
+  o$palette_metric   = "pals::kovesi.rainbow"
   
   # Colour packages and palettes for groupings (see colour_scheme in myRfunctions.R)
   o$palette_age     = "brewer::set2"
@@ -198,11 +194,12 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$plot_arrays      = TRUE  # Plot array scenario bundles
   o$plot_heatmaps    = TRUE  # Plot heat maps for multidimension arrays
   o$plot_assumptions = TRUE  # Model structure and assumptions figures
+  o$plot_calibration = TRUE  # Calibration performance and diagnostics
   
   # Flags for custom figures
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)
   
-  # ---- Advanced functionality ----
+  # ---- Override options ----
   
   # Override options set in my_options file
   o = override_options(o, quiet = quiet)
@@ -218,37 +215,35 @@ set_options = function(do_step = NA, quiet = FALSE) {
 # ---------------------------------------------------------
 override_options = function(o, quiet = FALSE) {
   
+  # Throw a warning if user still has a my_options.csv file
+  if (file.exists(str_replace(o$pth$my_options, ".yaml$", ".csv")))
+    warning("my_options.csv has been deprecated: use my_options.yaml instead")
+  
   # If user has a 'my options' file, load it
   if (file.exists(o$pth$my_options)) {
-    my_options = read.csv(o$pth$my_options)
+    my_options = read_yaml(o$pth$my_options)
     
     # Continue if we have options to override
-    if (nrow(my_options) > 0) {
+    if (length(my_options) > 0) {
       
-      if (!quiet) message(" - Overriding options using config/my_options.csv file")
+      if (!quiet) message(" - Overriding options using config/my_options.yaml file")
       
       # Throw an error if there are entries that are not well defined options
-      unrecognised = my_options$option[!my_options$option %in% names(o)]
+      unrecognised = names(my_options)[!names(my_options) %in% names(o)]
       if (length(unrecognised) > 0)
         stop("Unrecognised entries in 'my options' file: ", paste(unrecognised, collapse = ", "))
       
       # Throw an error if there are multiple entries for any one option
-      duplicates = my_options$option[duplicated(my_options$option)]
+      duplicates = names(my_options)[duplicated(names(my_options))]
       if (length(duplicates) > 0)
         stop("Duplicate entries in 'my options' file: ", paste(duplicates, collapse = ", "))
       
       # Variable class of the options we wish to overwrite
-      class_conversion = paste0("as.", lapply(o[my_options$option], class))
+      class_conversion = paste0("as.", lapply(o[names(my_options)], class))
       
       # Iterate through the options and overwrite with value of correct class
-      for (i in seq_len(nrow(my_options))) {
-        
-        # Format entry - primary job is to seperate out multiple values
-        format_value = base::trimws(str_split(my_options$value[i], ",")[[1]])
-        
-        # Overwrite the converted option as defined in 'my options' file
-        o[[my_options$option[i]]] = get(class_conversion[i])(format_value)
-      }
+      for (i in seq_along(my_options))
+        o[[names(my_options)[i]]] = get(class_conversion[i])(my_options[[i]])
     }
   }
   

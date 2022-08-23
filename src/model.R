@@ -25,12 +25,9 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
   if (verbose != "none") message(" - Parsing input")
   
   # Load and parse user-defined inputs for this scenario
-  yaml = parse_yaml(o, scenario = scenario, read_array = TRUE)
+  yaml = parse_yaml(o, scenario, fit = fit, read_array = TRUE)
   
-  # Apply fitted parameters - also used during calibration process
-  yaml = fit_yaml(o, yaml, fit)
-  
-  # Short hand for model parameters
+  # Shorthand for model parameters
   p = yaml$parsed
   
   # ---- Model set up ----
@@ -67,11 +64,17 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
   
   # Preallocate lists for calculation of effective reproduction number
   serial_int = vector("list", p$n_days)
-  incidence  = list(local  = rep(0, p$n_days), 
-                    import = rep(0, p$n_days))
+  incidence  = rep(0, p$n_days)
   
   # Preallocate model output datatable (denoted 'm' for short)
   m = preallocate_output(p)
+  
+  # Preallocate list for healthcare and intervention costs
+  cost_units = list(vaccine   = rep(0, p$n_days), 
+                    prep      = rep(0, p$n_days),
+                    treatment = rep(0, p$n_days), 
+                    hospital  = rep(0, p$n_days), 
+                    icu       = rep(0, p$n_days))
   
   # ---- Main model loop ----
   
@@ -256,9 +259,8 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
     
     # ---- Effective reproduction number ----
     
-    # Store incidence in this time step
-    incidence$local[i]  = length(local_id)
-    incidence$import[i] = length(import_id)
+    # Store incidence in this time step (including imported cases)
+    incidence[i] = length(newly_infected_id)
     
     # Also store serial interval for every infection
     serial_int[[i]] = ppl[id %in% transmission_df$from, days_infected]
@@ -288,7 +290,7 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
     ppl = fn_vaccinate(p, ppl, n_priority_group, i)
     
     # Handle all vaccine-related metrics (there are a few!) in seperate function for readability
-    m = fn_vaccine_count(m, p, ppl, i)
+    list[m, cost_units] = fn_vaccine_count(m, p, ppl, cost_units, i)
     
     # ---- PrEP ----
     
@@ -310,17 +312,24 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
     m = update_output(m, p, i, "prep_coverage",     prep_total, denom = prep_elig)
     m = update_output(m, p, i, "prep_coverage_pop", prep_total, denom = ppl)
     
+    # Update number of vaccine doses in intervention unit counter
+    cost_units$prep[i] = nrow(prep_today)
+    
     # ---- Treatment ----
     
     # Treat eligible infected cases
-    ppl = fn_treatment(p, ppl, i)
+    list[ppl, treat_id] = fn_treatment(p, ppl, i)
     
-    # Store total number of those diagnosed this time step
-    m = update_output(m, p, i, "treated", ppl[treatment_date == i, ])
+    # Store total number of people treated this time step
+    m = update_output(m, p, i, "n_treat",     ppl[treat_id$total, ])
+    m = update_output(m, p, i, "total_treat", ppl[treat_id$total, ]) # Cum-summed in format_output
     
-    # We may want to be more complete with our treatment metrics...
-    # m = update_output(m, p, i, "treat_success", ppl[treatment_date == i && disease_state == "susc", ])
-    # m = update_output(m, p, i, "treat_failure", ppl[treatment_date == i && disease_state != "susc", ])
+    # Also store the subset that had successful treatment
+    m = update_output(m, p, i, "n_treat_success",     ppl[treat_id$success, ])
+    m = update_output(m, p, i, "total_treat_success", ppl[treat_id$success, ]) # Cum-summed in format_output
+    
+    # Update number of vaccine doses in intervention unit counter
+    cost_units$treatment[i] = length(treat_id$total)
     
     # ---- Other updates ----
     
@@ -332,11 +341,7 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
       stop("Model error: negative days until next event")
     
     # Update disease and care state then sample duration of next phase
-    updates = update_state(p, ppl, i, m = m)
-    
-    # Apply updates to ppl array and metric list, m
-    ppl = updates$ppl
-    m   = updates$m
+    list[ppl, m, cost_units] = update_state(p, ppl, i, m = m, cost_units = cost_units)
     
     # Increment the number of days infected and infectious, or recovered
     ppl[!is.na(days_infected),   days_infected   := days_infected   + 1]
@@ -376,6 +381,9 @@ model = function(o, scenario, seed = NA, fit = NULL, do_plot = FALSE, verbose = 
   # Produce plot of disease and care states over time
   if (do_plot == TRUE)
     plot_disease_state(o, p, "Population disease and care states", states)
+  
+  # Calculate healthcare and intervention costs
+  m = health_economics(p, m, cost_units)
   
   # Calculate effective reproduction number from incidence and serial interval
   R_info = calculate_Reff(incidence, unlist(serial_int), p$r_eff_window)
@@ -473,7 +481,7 @@ initiate_ppl = function(o, p, verbose) {
   
   # Loop through the user-defined risk groups
   for (this_group in names(p$risk_groups)) {
-
+    
     # Probability of acceptance per person (dependent on age)
     risk_prop = p$risk_groups[[this_group]]$probability[ppl[, age] + 1]
     
@@ -490,7 +498,7 @@ initiate_ppl = function(o, p, verbose) {
     this_group = p$priority_groups[id == group_id, ]
     
     # Evaluate the condition and set priority for any that satisfy
-    ppl[eval(parse(text = this_group$condition)), priority_group := this_group$id]
+    ppl[eval_str(this_group$condition), priority_group := this_group$id]
   }
   
   # Remove all those that are no able to receive vaccination (but can receive PrEP)
@@ -614,7 +622,7 @@ initiate_epidemic = function(o, p, ppl) {
     ppl[, days_to_allocate := pmax(0, days_to_allocate - next_event, na.rm = TRUE)]
     
     # Update disease and care state then sample duration of next phase
-    ppl = update_state(p, ppl, 1)$ppl
+    list[ppl, , ] = update_state(p, ppl, 1)
     
     # Add duration of this phase to number of days infected and infectious
     ppl[prev_infected_id, days_infected   := days_infected   + pmin(days_next_event, days_to_allocate)]
@@ -776,11 +784,15 @@ format_output = function(o, p, m, R_info, network, ppl, yaml, seed) {
   # Convert number of cases per variant to variant prevalence
   m[metric == "variant_prevalence", value := 100 * value / max(sum(value), 1), by = "date"]
   
-  # Convert total doses into a cumulative measure
+  # Convert total vaccine doses into cumulative measures
   m[metric == "total_doses", value := cumsum(value), by = .(grouping, group)]
   
+  # Convert total treatments into cumulative measures
+  m[metric == "total_treat",         value := cumsum(value), by = .(grouping, group)]
+  m[metric == "total_treat_success", value := cumsum(value), by = .(grouping, group)]
+  
   # Store effective reproduction number (calculated in postprocess.R)
-  R_info$R_eff$value[1 : (min(o$fit_days) - 1)] = NA  # Remove values before fitting period
+  R_info$R_eff$value[1 : (p$r_eff_fit$start_day - 1)] = NA  # Remove values before fitting period
   m[metric == "R_effective", value := R_info$R_eff$value]
   
   # Count number of infections per person, capped by max_infections
@@ -809,7 +821,7 @@ format_output = function(o, p, m, R_info, network, ppl, yaml, seed) {
 # ---------------------------------------------------------
 # Update disease and care states for all relevant individuals
 # ---------------------------------------------------------
-update_state = function(p, ppl, date_idx, m = NULL) {
+update_state = function(p, ppl, date_idx, m = NULL, cost_units = NULL) {
   
   # IDs of people that need to be updated
   update_id = ppl[days_next_event == 0, id]
@@ -827,6 +839,12 @@ update_state = function(p, ppl, date_idx, m = NULL) {
       # Count and store values of each metric in model output
       for (update_metric in unique(na.omit(update_df$metric)))
         m = update_output(m, p, date_idx, update_metric, update_df[metric == update_metric, ])
+    }
+    
+    # Store numbers entering hospital/ICU if required
+    if (!is.null(cost_units)) {
+      cost_units$hospital[date_idx] = nrow(update_df[metric == "hospital_admissions", ])
+      cost_units$icu[date_idx]      = nrow(update_df[metric == "icu_admissions", ])
     }
     
     # Update disease and care state according to model_flows
@@ -899,7 +917,33 @@ update_state = function(p, ppl, date_idx, m = NULL) {
     ppl[new_symptoms_id, test_date := date_idx + p$diagnosis_delay]
   }
   
-  return(list(ppl = ppl, m = m))
+  return(list(ppl, m, cost_units))
+}
+
+# ---------------------------------------------------------
+# Calculate healthcare and intervention costs
+# ---------------------------------------------------------
+health_economics = function(p, m, cost_units) {
+  
+  # Total cost of all interventions
+  intervention_costs = 
+    cost_units$vaccine   * p$intervention_costs$vaccine + 
+    cost_units$prep      * p$intervention_costs$prep + 
+    cost_units$treatment * p$intervention_costs$treatment
+  
+  # Total healthcare costs
+  healthcare_costs = 
+    cost_units$hospital * p$healthcare_costs$hospital + 
+    cost_units$icu      * p$healthcare_costs$icu
+    
+  # Store these costs
+  m[metric == "intervention_costs", value := intervention_costs]
+  m[metric == "healthcare_costs",   value := healthcare_costs]
+  
+  # Also store overal costs (cost of interventions + healthcare costs)
+  m[metric == "overall_costs", value := intervention_costs + healthcare_costs]
+  
+  return(m)
 }
 
 # ---------------------------------------------------------
@@ -1102,7 +1146,7 @@ fn_prognosis = function(o, p, new_infected) {
   
   # Individual probability of symptoms given vaccination status
   prob_symp_prep = ((1 - prep_effect) * (1 - p$proportion_asymptomatic)) # / 
-    # (1 - vaccine_effect * p$vaccine$transmission_blocking)
+  # (1 - vaccine_effect * p$vaccine$transmission_blocking)
   
   # Additional probability of being asymptomatic given vaccination status
   disease_prevention = pmax(1 - prob_symp_vaccine, 1 - prob_symp_prep) - 
@@ -1310,7 +1354,7 @@ fn_vaccinate = function(p, ppl, n_priority_group, date_idx) {
 # ---------------------------------------------------------
 # Handle all vaccine and booster metrics
 # ---------------------------------------------------------
-fn_vaccine_count = function(m, p, ppl, date_idx) {
+fn_vaccine_count = function(m, p, ppl, cost_units, date_idx) {
   
   # Number vaccinated total and historically
   vaccine_today = ppl[days_vaccinated == 0, ]
@@ -1352,7 +1396,10 @@ fn_vaccine_count = function(m, p, ppl, date_idx) {
   m = update_output(m, p, date_idx, "booster_coverage_12m",     booster_12m, denom = vaccine_total)
   m = update_output(m, p, date_idx, "booster_coverage_12m_pop", booster_12m, denom = ppl)
   
-  return(m)
+  # Update number of vaccine doses in intervention unit counter
+  cost_units$vaccine[date_idx] = nrow(all_doses)
+  
+  return(list(m, cost_units))
 }
 
 # ---------------------------------------------------------
@@ -1372,7 +1419,7 @@ fn_prep = function(p, ppl, date_idx) {
   
   # How many we will provide PrEP to this time step - bounded above by number available
   n_prep = min(max(n_desired - nrow(prep_yes), 0), nrow(prep_no))
-
+  
   # Randomly select eligible people to provide PrEP to
   prep_id = sample_vec(x = prep_no[, id], size = n_prep)
   
@@ -1388,7 +1435,7 @@ fn_prep = function(p, ppl, date_idx) {
 fn_treatment = function(p, ppl, date_idx) {
   
   # Extract people who could be due treatment today
-  treat_df = ppl %>%
+  treat_elig = ppl %>%
     left_join(p$treat_prob, 
               by = c("priority_group", "disease_state")) %>%
     left_join(p$treat_available, 
@@ -1402,38 +1449,49 @@ fn_treatment = function(p, ppl, date_idx) {
   # NOTE: There is probably a better way of doing this in one step
   
   # Treatments for the unvaccinated
-  treat_unvax = treat_df %>%
+  treat_unvax = treat_elig %>%
     filter(vaccine_condition == "unvaccinated", 
            is.na(days_vaccinated))
   
   # Treatments for the vaccinated
-  treat_vax = treat_df %>%
+  treat_vax = treat_elig %>%
     filter(vaccine_condition == "vaccinated", 
            days_vaccinated > 0)
   
   # Treatment regardless of vaccine status
-  treat_all = treat_df %>%
+  treat_all = treat_elig %>%
     filter(vaccine_condition == "none")
   
-  # Test treatment probability and pull IDs of those to be treated
-  treat_id = rbind(treat_unvax, treat_vax, treat_all) %>%
-    mutate(rand = runif(n()), 
-           treated = rand < treat_prob) %>% 
-    filter(treated == TRUE) %>%
+  # Probability of treatment and of treatment success
+  treat_df = rbind(treat_unvax, treat_vax, treat_all) %>%
+    mutate(treat_success = treat_prob * p$treat_efficacy, 
+           rand = runif(n()))
+  
+  # Those with successful treatment
+  success_id = treat_df %>% 
+    filter(rand < treat_success) %>%
     pull(id)
   
+  # Include those with failed treatment
+  total_id = treat_df %>%
+    filter(rand < treat_prob) %>%
+    pull(id)
+  
+  # Store these IDs for output
+  treat_id = list(total = total_id, success = success_id)
+  
+  # Assign current date index to treatment_date for only those successful
+  ppl[success_id, treatment_date := date_idx]
+  
   # Reset prognosis, disease, and care values to represent a mild case...
-  ppl[treat_id, disease_state   := "mild"]
-  ppl[treat_id, care_state      := "none"]
-  ppl[treat_id, prognosis_state := "mild"]
+  ppl[success_id, disease_state   := "mild"]
+  ppl[success_id, care_state      := "none"]
+  ppl[success_id, prognosis_state := "mild"]
   
   # ... which is just about to recover
-  ppl[treat_id, days_next_event := 1]
+  ppl[success_id, days_next_event := 1]
   
-  # Assign current date index to treatment_date variable
-  ppl[treat_id, treatment_date := date_idx]
-  
-  return(ppl)
+  return(list(ppl, treat_id))
 }
 
 # ---------------------------------------------------------

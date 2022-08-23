@@ -16,17 +16,6 @@ previously_infected: 0.3
 # Number of days over which these past infections have occured
 n_days_init: -360
 
-# Effective reproduction number at analysis start
-r_eff: 1.0  # Calibrated in step 1
-
-# Time window (in days) for calculating R_eff
-#
-# See: cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
-r_eff_window: 7
-
-# Transmission probability at maximum infecitivty, susceptibility, and seasonality
-beta: 0.002 # Arbitrary, but gives ~10 contacts for reasonable r_eff
-
 # Seasonality profile
 seasonality_fn: 
   fn: "cospi"
@@ -39,6 +28,24 @@ seasonality_scaler: 0.3
 
 # Number of days to shift seasonality start
 seasonality_shift: 120  # 0 represents mid-winter
+
+# ---- Effective reproduction number ----
+
+# Effective reproduction number at analysis start
+r_eff: 1.0  # Can be calibrated in step 1 (set calibration_type: "r_user" to use)
+
+# Time window (in days) for calculating R_eff
+#
+# See: cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
+r_eff_window: 7  
+
+# Transmission probability at maximum infecitivty, susceptibility, and seasonality
+beta: 0.002 # Arbitrary, but gives ~10 contacts for reasonable r_eff
+
+# Average number of contacts per person (placeholder)
+#
+# NOTE: This parameter is calibrated in most use cases (see calibration_parameters)
+contacts: 10.0
 
 # ---- Network structure ----
 
@@ -469,6 +476,21 @@ demography:
   88: 0.003121599
   89: 0.002766237
   90: 0.011291680
+  
+# ---- Health economics ----
+
+currency: "USD"
+
+# Costs per event (overall, NOT per day)
+healthcare_costs:
+  hospital: 1000  # Cost per hospitalisation
+  icu: 5000       # Additional cost per ICU entry
+
+# Cost per pharmaceutical intervention unit
+intervention_costs:
+  vaccine: 20    # Cost per vaccine dose
+  prep: 20       # Cost per PrEP cose
+  treatment: 20  # Cost per treatment round
 
 # ---- Model metrics ----
 
@@ -558,10 +580,16 @@ model_metrics:
   total_doses:
     report: yes
     by: priority_group
-  treated:
+  n_treat:
+    report: no
+    by: none
+  total_treat:
+    report: no
+    by: none
+  n_treat_success:
     report: yes
     by: priority_group
-  treated_total:
+  total_treat_success:
     report: yes
     by: priority_group
   treatment_coverage:
@@ -586,17 +614,80 @@ model_metrics:
     report: yes
   contact_reduction:
     report: no
+  healthcare_costs:
+    report: no
+  intervention_costs:
+    report: no
+  overall_costs:
+    report: yes
     
 # ---- Calibration settings ----
-
-# Number of contacts placeholder - this is fitted to achieve desired R_eff    
-contacts: 10.0
+  
+# Type of calibration to perform
+#
+# OPTIONS:
+#    r_user: Value of 'r_eff' as set by the user
+#    r_data: Value of 'r_eff' as defined by case data
+#  epi_data: Fitting to temporal epidemiological data
+calibration_type: "r_user"
 
 # Define parameters to be calibrated
-calibration:
+calibration_parameters:
 - param: "contacts"
-  lower: 1
+  lower: 2
   upper: 20
+  synth: 12  # Used for generating synthetic data (to test fitting algorithm)
+
+# Additional options for r_data and epi_data calibration
+calibration_options: 
+  data_source: "ecdc"  # OPTIONS: 'ecdc' or 'synthetic'
+  country: IT
+  country_pop: 100000
+  data_end: 2022-08-01
+  data_days: 90  # For epi_data only (r_eff_window used for r_data)
+  data_burn_in: 30  # Number of days to simulate before data kicks in (for epi_data only)
+
+# Weights for epi_data calibration only (set metrics to 0 to turn off)
+calibration_weights:
+  time: "none"  # OPTIONS: 'none', 'weak', or 'strong'
+  peak: "none"  # OPTIONS: 'none', 'weak', or 'strong'
+  metric:
+    confirmed: 1.0
+    deaths: 1.0
+    hospital_beds: 1.0
+    hospital_admissions: 0.0
+    icu_beds: 1.0
+    icu_admissions: 0.0
+
+# Strength of objective function scaling
+objective_scaling: "none"  # OPTIONS: 'none', 'weak', or 'strong'
+
+# Emulator options
+emulator:
+  init_samples: 250       # Initial number of paramter sets
+  seeds: 8                # Number of stochastic runs per sample
+  test_train_split: 0.15  # Test-train split of samples (15-20% is reasonable)
+  gp_kernel: "Matern5_2"  # Select GP kernel function (see ?mleHetGP)
+  gp_max_iter: 1000       # Maximum number of iterations of GP algorithm
+
+# Adaptive sampling options
+#
+# NOTE: Adaptive sampling is very useful for fitting to epi_data - not so much for R_eff
+adaptive_sampling:
+  rounds: 1                   # Number of rounds (set to 0 to turn adaptive sampling off)
+  acquisition_points: 10000   # Number of randomly sampled points to evaluate for resampling
+  min_value_accepted: 0.0001  # Lower bound for expected improvment we'll consider
+  max_samples_accepted: 100   # Take at maximum n new parameter sets per round
+  
+# Optimisation options (for finding global minimum of emulated space)
+optimisation:
+  optim_runs: 20  # Number of times to perform optimisation
+  optim_iters: 100  # Number of ASD iterations
+  
+# Time period for fitting to R_eff
+r_eff_fit:
+  start_day: 10  # Start fitting from day n of simulations
+  n_days: 5      # Take the average over the next n days
   
 # ---- Scenarios ----
 
@@ -604,4 +695,4 @@ calibration:
 scenarios: 
 - id: baseline
   name: "Baseline scenario"
-  
+

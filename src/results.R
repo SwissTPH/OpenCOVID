@@ -140,20 +140,22 @@ run_results = function(o) {
       message(" - Multidimensional array heat map: ", this_array)
       
       # Produce heat map of moving parts: Cumulative new infections
-      fig_name = c("Array scenarios", "Heat map", this_array, "New infections")
-      plot_heatmap(o, fig_name, this_array, plot_metrics = "all_new_infections", summarise = "sum")
-      
-      # Produce heat map of moving parts: Cumulative deaths
-      fig_name = c("Array scenarios", "Heat map", this_array, "Deaths")
-      plot_heatmap(o, fig_name, this_array, plot_metrics = "deaths", summarise = "sum")
-      
-      # Produce heat map of moving parts: Mean R_eff over time
-      fig_name = c("Array scenarios", "Heat map", this_array, "R_eff")
-      plot_heatmap(o, fig_name, this_array, plot_metrics = "R_effective", summarise = "mean")
+      plot_heatmap(o, fig_name  = c("Heat map", this_array, "New infections"), 
+                   array        = this_array, 
+                   plot_metrics = "all_new_infections", 
+                   summarise    = "sum")
       
       # Produce heat map of moving parts: Cumulative hospital admissions
-      fig_name = c("Array scenarios", "Heat map", this_array, "Hospital admissions")
-      plot_heatmap(o, fig_name, this_array, plot_metrics = "hospital_admissions", summarise = "sum")
+      plot_heatmap(o, fig_name  = c("Heat map", this_array, "Hospital admissions"), 
+                   array        = this_array, 
+                   plot_metrics = "hospital_admissions", 
+                   summarise    = "sum")
+      
+      # Produce heat map of moving parts: Mean R_eff over time
+      plot_heatmap(o, fig_name  = c("Heat map", this_array, "R_eff"), 
+                   array        = this_array, 
+                   plot_metrics = "R_effective", 
+                   summarise    = "mean")
     }
   }
   
@@ -177,26 +179,50 @@ run_results = function(o) {
     # Network figure 1) Series of network-related properties
     fig_name = c("Network properties", scenario_assumptions)
     plot_network_properties(o, fig_name, model_input, model_network)
-    
+
     # Network figure 2) Age matrix of contact density per age (single age bins)
     fig_name = c("Contact matrices", scenario_assumptions)
     plot_contact_matrices(o, fig_name, model_input, model_network)
-    
+
     # Plot disease state durations
     fig_name = c("Duration distributions", scenario_assumptions)
     plot_durations(o, fig_name, model_input)
-    
+
     # Plot viral load profile
     fig_name = c("Viral load profile", scenario_assumptions)
     plot_viral_load(o, fig_name, model_input)
     
     # Plot immunity profiles for natural infections and vaccination
-    fig_name = c("Duration distributions", scenario_assumptions)
+    fig_name = c("Immunity profiles", scenario_assumptions)
     plot_immunity_profiles(o, fig_name, model_input)
+  }
+  
+  # ---- Calibration performance and diagnostics ----
+  
+  # Check plotting flag
+  if (o$plot_calibration == TRUE) {
     
-    # Plot calibration emulator and optimisation performance (outcomes of step 1)
-    plot_emulator(o, "Emulator performance")
-    plot_optimisation(o, "Optimisation performance")
+    message(" - Calibration performance")
+    
+    # Load baseline model input
+    model_input = try_load(o$pth$scenarios, "baseline")$input
+    
+    # Loop through adaptive sampling rounds
+    for (round_idx in paste0("r", 0 : model_input$adaptive_sampling$rounds)) {
+
+      # Plot each round, as long as results exist (we may have broken out early)
+      round_result = paste0(o$pth$fitting, round_idx, "_result.rds")
+      if (file.exists(round_result)) {
+
+        # Plot calibration emulator and optimisation performance (outcomes of step 1)
+        plot_best_samples(o, "Best simulated samples",   round_idx)
+        plot_emulator(o,     "Emulator performance",     round_idx)
+        plot_optimisation(o, "Optimisation performance", round_idx)
+      }
+    }
+    
+    # Plot calibration weight assumptions for metrics, time, and peaks
+    plot_calibration_weights(o, "Calibration weights")
   }
   
   # ---- Custom figures ----

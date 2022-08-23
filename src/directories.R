@@ -13,7 +13,7 @@
 # ---------------------------------------------------------
 # Define paths for project inputs and outputs
 # ---------------------------------------------------------
-set_dirs = function(o, force_analysis_name = NULL) {
+set_dirs = function(o) {
   
   # Initiate file path lists
   pth = out = list()
@@ -21,20 +21,20 @@ set_dirs = function(o, force_analysis_name = NULL) {
   # We've already moved to code directory
   pth$code = getwd()
   
-  # Path to cluster log files
-  out$log = file.path(pth$code, "log")
+  # Path to cluster log files and data cache
+  out$log   = file.path(pth$code, "log")
+  out$cache = file.path(pth$code, "cache")
   
   # ---- Input files ----
   
   # Parent path of all input files
   pth$input  = file.path(pth$code, "input")
   pth$config = file.path(pth$code, "config")
-  pth$data   = file.path(pth$code, "data")
   
   # Paths to specific configuration files
   pth$states     = file.path(pth$config, "state_flows.xlsx")
-  pth$metrics    = file.path(pth$config, "model_metrics.xlsx")
-  pth$my_options = file.path(pth$config, "my_options.csv")
+  pth$metrics    = file.path(pth$config, "model_metrics.yaml")
+  pth$my_options = file.path(pth$config, "my_options.yaml")
   
   # ---- Sub folder location (analysis name) ----
   
@@ -42,16 +42,12 @@ set_dirs = function(o, force_analysis_name = NULL) {
   if (file.exists(pth$my_options)) {
     
     # Check whether analysis name has been defined
-    overwrite = filter(read.csv(pth$my_options), option == "analysis_name")
+    overwrite_name = read_yaml(pth$my_options)$analysis_name
     
     # If so, overwrite value defined in options.R
-    if (length(overwrite$value) > 0)
-      o$analysis_name = overwrite$value
+    if (!is.null(overwrite_name))
+      o$analysis_name = overwrite_name
   }
-  
-  # Force overwrite this if desired
-  if (!is.null(force_analysis_name))
-    o$analysis_name = force_analysis_name
   
   # ---- Output directories ----
   
