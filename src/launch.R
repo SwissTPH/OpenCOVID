@@ -9,7 +9,7 @@
 #  Via shell command line: sh bash_launch.sh
 #
 # The OpenCOVID model is maintained by members of the Disease
-# Modelling Unit at Swiss TPH.
+# Modelling Unit at the Swiss Tropical and Public Health Institute.
 #
 ###########################################################
 
@@ -26,7 +26,7 @@ source("dependencies.R")
 if (interactive()) clf()  # Close figures
 if (interactive()) clc()  # Clear console
 
-message("Running OpenCOVID v3.0 alpha")
+message("Running OpenCOVID v4.0 alpha")
 
 # Set options (see options.R)
 o = set_options(do_step = 3)

@@ -33,12 +33,14 @@ source("options.R")
 source("directories.R")
 source("parse_input.R")
 source("model.R")
+source("prognosis.R")
 source("networks.R")
 source("calibration.R")
 source("load_data.R")
 source("emulator.R")
 source("asd.R")
 source("scenarios.R")
+source("uncertainty.R")
 source("cluster_jobs.R")
 source("postprocess.R")
 source("results.R")
@@ -52,7 +54,14 @@ if (file.exists("my_results.R"))
 # ---- Define packages ----
 
 # Complete list of all R packages required for this project
-packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (https://www.tidyverse.org/packages/)
+packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr (www.tidyverse.org/packages/)
+             "data.table",     # Next generation dataframes
+             "useful",         # General helper functions (eg compare.list)
+             "rlist",          # List-related helper functions (eg list.remove)
+             "gsubfn",         # Output multiple variables from functions
+             "wrapr",          # Convenience functions (eg qc)
+             "stats",          # Statistical calculations and random number generation
+             "matrixStats",    # Matrix row and column operations
              "tgp",            # Latin hypercube sampler
              "hetGP",          # Gaussian Process model and acquisition functions
              "philentropy",    # Distance measures
@@ -61,18 +70,10 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "forecast",       # Linear regression for time series
              "imputeTS",       # Imputation for time series
              "akima",          # Bivariate interpolation
-             "stats",          # Statistical calculations and random number generation
-             "matrixStats",    # Matrix row and column operations
-             # "tidygraph",      # Network functionality
-             # "ggraph",         # Network functionality
              "widyr",          # Compile network properties
              "socialmixr",     # Age structured contact matrixes from POLYMOD
-             "EpiEstim",       # R_effective calculated from incidence and serial interval
+             "EpiEstim",       # Re calculated from incidence and serial interval
              "wrswoR",         # Fast weighted integer sampling without replacement
-             "data.table",     # Next generation dataframes
-             "useful",         # General helper functions (eg compare.list)
-             "rlist",          # List-related helper functions (eg list.remove)
-             "gsubfn",         # Output multiple variables from functions
              "httr",           # Read data from API endpoint
              "jsonlite",       # Convert data to/from json format
              "rio",            # Data loading functionality
@@ -80,7 +81,6 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "yaml",           # Data loading functionality
              "lubridate",      # Data formatting functionality
              "naniar",         # Data formatting functionality
-             "wrapr",          # Convenience functions (eg qc)
              "coda",           # Plotting functionality
              "gridExtra",      # Plotting functionality
              "ggnewscale",     # Plotting functionality
@@ -94,7 +94,8 @@ packages = c("tidyverse",      # Includes ggplot2, dplyr, tidyr, and others (htt
              "GGally",         # Network plotting
              "igraph",         # Network plotting
              "RColorBrewer",   # Network plotting colour palettes
-             "progress")       # Cool progress bar
+             "progress",       # Cool progress bar
+             "tictoc")         # Code timer
 
 # List of all packages only available from github
 gh_packages = c("eliocamp/tagger")
@@ -122,12 +123,11 @@ pacman::p_load_gh(gh_packages)
 # ---- Redefine or unmask particular functions ----
 
 # Unmask certain functions otherwise overwritten
-union   = dplyr::union
 select  = dplyr::select
 filter  = dplyr::filter
 rename  = dplyr::rename
 recode  = dplyr::recode
+count   = dplyr::count
+union   = dplyr::union
 predict = stats::predict
-# groups  = tidygraph::groups
-as.data.frame = base::as.data.frame
 

@@ -19,28 +19,20 @@ run_scenarios = function(o) {
   # Check calibration file is suitable
   check_fit(o)
   
+  # Set a seed if we want this process to be reproducible
+  if (o$scenario_reproducible)
+    set.seed(1)
+  
   # ---- Set up full set of simulations ----
   
-  # All scenarios to simulate
+  # Sample values from all parameter uncertianty distrubutions
+  uncert_df = sample_uncertainty(o)  # See uncertainty.R
+  
+  # All scenarios to simulate (see parse_input.R)
   all_scenarios = names(parse_yaml(o, "*read*", read_array = TRUE))
   
-  # We'll run each simulation for different seeds
-  seed_id = str_pad(1 : o$n_seeds_analysis, 4, pad = "0")
-  
-  # ... and potentially different parameter sets (sampled from fitted posteriors)
-  param_id = str_pad(0 : o$n_parameter_samples, 4, pad = "0")
-  
-  # Full factorial set of parameter sets, seeds, and scenarios
-  all_simulations = expand_grid(param_id = param_id, 
-                                seed     = seed_id, 
-                                scenario = all_scenarios)
-  
-  # Use all of this to create unique simulation identifiers
-  sim_df = all_simulations %>% 
-    mutate(sim_id = unite(all_simulations, "x", sep = "_")$x, 
-           sim_id = paste0("s", sim_id), 
-           seed = as.numeric(seed)) %>%
-    as.data.table()
+  # Generate set of sim IDs (depends on uncertainty options)
+  sim_df = create_sim_id(o, uncert_df, all_scenarios)
   
   # Save to file for use on the cluster
   saveRDS(sim_df, file = paste0(o$pth$simulations, "all_simulations.rds"))
@@ -49,16 +41,16 @@ run_scenarios = function(o) {
   
   # We may not want/need to run them all
   n_simulations = check_existing(o, sim_df)
-
+  
   # Do we need to simulate at all?
   if (n_simulations > 0) {
-
+    
     # Submit all jobs to the cluster (see myRfunctions.R)
     submit_cluster_jobs(o, n_simulations, "bash_submit.sh", "scenarios")
-
+    
     # Throw an error if any cluster jobs failed (see myRfunctions.R)
     stop_if_errors(o$pth$log, o$err_file, err_tol = 1)
-
+    
     # Remove all log files if desired (generally a good idea unless debugging)
     if (o$rm_cluster_log) unlink(paste0(o$pth$log, "*"), force = TRUE)
   }
@@ -67,10 +59,10 @@ run_scenarios = function(o) {
   
   # If no new simulations we may be able to skip this step
   if (o$force_summarise == FALSE && n_simulations == 0) {
-
+    
     # Summarised file of each scenario
     summarised_files = paste0(o$pth$scenarios, all_scenarios, ".rds")
-
+    
     # If all exist and we haven't re-simulated, we're done here
     if (all(file.exists(summarised_files)))
       return()
@@ -82,19 +74,19 @@ run_scenarios = function(o) {
   #
   # NOTE: Needed as original may have been overwritten in check_existing function
   saveRDS(sim_df, file = paste0(o$pth$simulations, "all_simulations.rds"))
-
+  
   # Number of unique scenarios... we'll summarise each on the cluster
   n_jobs = length(unique(sim_df$scenario))
-
+  
   # Submit all summarising jobs to the cluster (see myRfunctions.R)
   submit_cluster_jobs(o, n_jobs, "bash_submit.sh", "summarise")
-
+  
   # Throw an error if any cluster jobs failed (see myRfunctions.R)
   stop_if_errors(o$pth$log, o$err_file)
   
   # Missing simulations that have been imputed
   files_exist  = str_remove(list.files(o$pth$simulations), ".rds")
-  missing_sims = filter(sim_df, !sim_id %in% files_exist)$sim_id
+  missing_sims = sim_df[!sim_id %in% files_exist, sim_id]
   
   if (length(missing_sims) > 0)
     warning("Imputed values for ", length(missing_sims), " missing simulation(s):\n", 
@@ -102,6 +94,67 @@ run_scenarios = function(o) {
   
   # Remove all log files if desired (generally a good idea unless debugging)
   if (o$rm_cluster_log) unlink(paste0(o$pth$log, "*"), force = TRUE)
+}
+
+# ---------------------------------------------------------
+# Generate set of sim IDs (depends on uncertainty options)
+# ---------------------------------------------------------
+create_sim_id = function(o, uncert_df, all_scenarios) {
+  
+  # Check we have a positive number of samples to generate
+  if (o$n_parameter_sets < 1)
+    stop("The value of 'n_parameter_sets' must be a positive integer")
+  
+  # Unique parameter sets
+  if (!is.null(uncert_df)) 
+    param_sets = unique(uncert_df$param_set)
+  
+  # Trivial if not simulating parameter uncertainty
+  if (is.null(uncert_df)) 
+    param_sets = 1
+  
+  # IDs of unique parameter sets (padded by zeros)
+  param_id = str_pad(param_sets, 4, pad = "0")
+  
+  # Flag for simulating each uncertainty parameter set n_seeds times
+  if (o$full_factorial_uncertainty == TRUE || length(param_sets) == 1) {
+    
+    # IDs of unique seeds (padded by zeros)
+    seed_id = str_pad(1 : o$n_seeds_analysis, 4, pad = "0")
+    
+    # Take a full factorial grid for each scenario
+    all_sims = expand_grid(param_id = param_id, 
+                           seed_id  = seed_id, 
+                           scenario = all_scenarios)
+    
+  } else {  # Otherwise sample only one seed per paramenter set
+    
+    # Sample only one seed for each uncertainty set
+    seed_replace = o$n_parameter_sets > o$n_seeds_analysis
+    seed_sample  = sample.int(n    = o$n_seeds_analysis, 
+                              size = o$n_parameter_sets, 
+                              replace = seed_replace)
+    
+    # IDs of these seeds (padded by zeros)
+    seed_id = str_pad(seed_sample, 4, pad = "0")
+    
+    # One seed per parameter set, for each scenario
+    all_sims = data.table(param_id = param_id, 
+                          seed_id  = seed_id) %>% 
+      expand_grid(scenario = all_scenarios)
+  }
+  
+  # Use all of this to create unique simulation identifiers
+  sim_df = all_sims %>% 
+    mutate(sim_id = unite(all_sims, "x", sep = "_")$x, 
+           sim_id = paste0("s", sim_id), 
+           param_set = as.numeric(param_id),
+           seed_num  = as.numeric(seed_id)) %>%
+    select(sim_id, scenario, param_set, seed_num) %>%
+    arrange(scenario, param_set, seed_num) %>%
+    setDT()
+  
+  return(sim_df)
 }
 
 # ---------------------------------------------------------
@@ -122,7 +175,7 @@ check_fit = function(o) {
   # Remove items that it is ok to change (see o$fit_changeable_items)
   fit_input = list.remove(fit_result$input, o$fit_changeable_items)
   baseline_input = list.remove(baseline$parsed, o$fit_changeable_items)
-
+  
   # Are these two lists identical - if yes we are done here
   check_flag = setequal(baseline_input, fit_input)
   
@@ -179,7 +232,7 @@ check_existing = function(o, sim_df) {
   
   # Simulations that already exist (ie from previous analyses)
   files_exist = str_remove(list.files(o$pth$simulations), ".rds")
-  sims_exist  = filter(sim_df, sim_id %in% files_exist)
+  sims_exist  = sim_df[sim_id %in% files_exist, ]
   
   # Do we want to avoid overwriting any previously run simulations?
   if (o$overwrite_simulations == FALSE && nrow(sims_exist) > 0) {
@@ -194,6 +247,8 @@ check_existing = function(o, sim_df) {
       
       # Assess each scenario that already exists
       for (scenario_exist in unique(sims_exist$scenario)) {
+        
+        browser()
         
         # Only need to look at one simulation - load it and extract input list
         check_sim   = filter(sims_exist, scenario == scenario_exist)[1, ]
@@ -225,7 +280,7 @@ check_existing = function(o, sim_df) {
     
     # Alternatively, don't bother checking yaml consistency - won't overwrite regardless
     if (o$check_yaml_consistency == FALSE)
-      run_df = filter(run_df, !sim_id %in% files_exist)
+      run_df = run_df[!sim_id %in% files_exist, ]
     
     # Save to file for use on the cluster
     saveRDS(run_df, file = paste0(o$pth$simulations, "all_simulations.rds"))

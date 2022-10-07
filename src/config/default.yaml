@@ -32,15 +32,15 @@ seasonality_shift: 120  # 0 represents mid-winter
 # ---- Effective reproduction number ----
 
 # Effective reproduction number at analysis start
-r_eff: 1.0  # Can be calibrated in step 1 (set calibration_type: "r_user" to use)
+Re: 1.0  # Can be calibrated in step 1 (set calibration_type: "Re_user" to use)
 
-# Time window (in days) for calculating R_eff
+# Time window (in days) for calculating Re
 #
 # See: cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
-r_eff_window: 7  
+Re_window: 7  
 
 # Transmission probability at maximum infecitivty, susceptibility, and seasonality
-beta: 0.002 # Arbitrary, but gives ~10 contacts for reasonable r_eff
+beta: 0.002 # Arbitrary, but gives ~10 contacts for reasonable Re
 
 # Average number of contacts per person (placeholder)
 #
@@ -146,7 +146,7 @@ risk_groups:
 # Vaccine definition and immunity profile
 vaccine_defintion:
   name: "mRNA vaccine"
-  transmission_blocking: 0.85  # Proportion of efficacy that blocks transmission
+  infection_blocking: 0.85  # Proportion of efficacy that blocks infection
   efficacy:
     fn: ["logistic_inv", "logistic_inv"]
     slope: [1.8, 1.8]
@@ -160,6 +160,12 @@ vaccine_defintion:
     mid: 105
     lb: 0.15
     ub: 0.85
+
+# Vaccine updates that effectively protect from exposure to all currently circulating variants
+vaccine_update:
+- id: next_gen_vaccine
+  name: "Next generation vaccine"
+  release_day: no  # Set to integer to use
   
 # Vaccination history
 vaccine_history: 
@@ -192,13 +198,24 @@ booster_rollout:
   start: 0           # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
   force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
   force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
+
+# Per vaccine dose risk scaler for ICU and death (assumed to not wane over time)
+#
+# See: www.ncbi.nlm.nih.gov/pmc/articles/PMC9278128/ 
+# Also see exposure_response relationship parameters
+dose_response:
+  icu_risk_factor: 0.66  # [95% CI 0.62-0.71]  
+  death_risk_factor: 0.78  # [95% CI 0.72-0.84]
   
+# Maximum number of vaccine doses to count per person
+max_dose_count: 10
+
 # ---- PrEP details ----
 
 # Pre-exposure prophylaxis immunity profile
 prep_defintion:
   name: "Monoclonal-antibody PrEP"
-  transmission_blocking: 0.0  # TODO: Not yet implemented (may not even need it)
+  infection_blocking: 0.0  # TODO: Not yet implemented (may not even need it)
   efficacy:
     fn: "logistic_inv"
     slope: 1.8
@@ -257,8 +274,8 @@ treat_products:
 # ---- Other interventions ----
 
 # Future non-pharmaceutical intervention effect
-npi_scaler: 0  # Set to 0 to turn off NPI effect
-npi_effect: 0
+npi_effect: 0  # Set to 0 to turn off NPI effect
+npi_scaler: 1 
 
 # Testing and diagnosis
 diagnosis_delay: 3  # Delay between symptom onset and test/diagnosis
@@ -294,6 +311,9 @@ isolation:
   duration: 10
 
 # ---- Biological and epidemiological parameters ----
+
+# Probability of asymptomatic infection (assumed not be age-specific)
+proportion_asymptomatic: 0.33
   
 # Age-related probabiliy of severe disease given person is symptomatic
 severe_symptom_age:
@@ -318,22 +338,19 @@ death_critical_age:
   mid: 90
   lower: 0
   upper: 2
+
+# Per exposure risk scaler for ICU and death (assumed to not wane over time)
+#
+# See: 
+#  1) www.sciencedirect.com/science/article/pii/S016344532200010X
+#  2) www.thelancet.com/journals/lancet/article/PIIS0140-6736(22)00089-7/fulltext
+# Also see dose_response relationship parameters
+exposure_response:
+  icu_risk_factor: 0.4	# Calculated from (1)
+  death_risk_factor: 0.65  # Calculated from (1)
   
-# Scale factors for death when critical in/out of ICU
-death_critical_icu: 0.2
-death_critical_non_icu:	0.95
-
-# Probability of asymptomatic infection
-proportion_asymptomatic: 0.33
-
-# Probability of seeking care if severe
-seek_hospital: 0.75
-
-# Flag for replacing dead people
-replace_dead: no
-
 # Maximum number of infections to count per person
-max_infections: 5
+max_infection_count: 10
 
 # Disease state durations
 durations:
@@ -383,6 +400,25 @@ durations:
     sd: 1.0
 
 # ---- Demography ----
+
+# Age-related probabiliy of non-COVID 'natural' death
+natural_death_age:
+  fn: "logistic"
+  slope: 10
+  mid: 90
+  lower: 0
+  upper: 0.0008
+
+# Flag for modelling non-COVID 'natural' deaths
+natural_deaths: yes
+
+# Flag for replacing COVID-related deceased with newborns
+#
+# NOTE: natural deaths are replaced with newborns regardless
+replace_deceased: yes
+
+# Flag for ageing people each year
+annual_ageing: yes
 
 # 90 yearly bins for ages [0-1], (1-2], ..., (89-90+] required
 demography:
@@ -479,6 +515,7 @@ demography:
   
 # ---- Health economics ----
 
+# Cost units (used for plotting purposes only)
 currency: "USD"
 
 # Costs per event (overall, NOT per day)
@@ -498,7 +535,7 @@ intervention_costs:
 model_metrics:
   all_new_infections:
     report: yes
-    by: age, priority_group, variant
+    by: age, priority_group, vaccine_type, variant
   new_local_infections:
     report: no
     by: none
@@ -506,20 +543,20 @@ model_metrics:
     report: no
     by: none
   confirmed:
-    report: no
+    report: yes
     by: none
   deaths:
     report: yes
-    by: age, priority_group, variant
+    by: priority_group, vaccine_type, vaccine_doses, variant
   hospital_beds:
     report: yes
-    by: age, priority_group
+    by: priority_group, vaccine_type, vaccine_doses
   hospital_admissions:
     report: no
     by: none
   icu_beds:
     report: yes
-    by: age, priority_group
+    by: priority_group, vaccine_type, vaccine_doses
   icu_admissions:
     report: no
     by: none
@@ -536,7 +573,7 @@ model_metrics:
     report: no
     by: none
   recovered:
-    report: yes
+    report: no
     by: none
   n_vaccinated:
     report: no
@@ -562,6 +599,12 @@ model_metrics:
   booster_coverage_12m_pop:
     report: no
     by: none
+  n_doses:
+    report: yes
+    by: priority_group, vaccine_type, vaccine_doses
+  total_doses:
+    report: yes
+    by: priority_group, vaccine_type, vaccine_doses
   n_prep:
     report: no
     by: none
@@ -574,12 +617,6 @@ model_metrics:
   prep_coverage_pop:
     report: no
     by: none
-  n_doses:
-    report: yes
-    by: priority_group
-  total_doses:
-    report: yes
-    by: priority_group
   n_treat:
     report: no
     by: none
@@ -598,11 +635,18 @@ model_metrics:
   treatment_coverage_pop:
     report: no  # Available soon!
     by: none
+  natural_deaths:
+    report: no
+    by: age
+  births:
+    report: no
+  pop_age:
+    report: yes
   n_infections: 
     report: yes
   variant_prevalence:
     report: yes
-  R_effective:
+  Re:
     report: yes
   seroprevalence:
     report: yes
@@ -626,10 +670,10 @@ model_metrics:
 # Type of calibration to perform
 #
 # OPTIONS:
-#    r_user: Value of 'r_eff' as set by the user
-#    r_data: Value of 'r_eff' as defined by case data
+#   Re_user: Value of 'Re' as set by the user
+#   Re_data: Value of 'Re' as defined by data
 #  epi_data: Fitting to temporal epidemiological data
-calibration_type: "r_user"
+calibration_type: "Re_user"
 
 # Define parameters to be calibrated
 calibration_parameters:
@@ -638,13 +682,16 @@ calibration_parameters:
   upper: 20
   synth: 12  # Used for generating synthetic data (to test fitting algorithm)
 
-# Additional options for r_data and epi_data calibration
+# Additional options for Re_data and epi_data calibration
 calibration_options: 
-  data_source: "ecdc"  # OPTIONS: 'ecdc' or 'synthetic'
+  data_synthetic: no
+  data_source:
+    epi: "ECDC"  # OPTIONS: 'ECDC' only
+    Re: "ETH"  # OPTIONS: 'ECDC' or 'ETH'
   country: IT
-  country_pop: 100000
+  country_pop: 60000000
   data_end: 2022-08-01
-  data_days: 90  # For epi_data only (r_eff_window used for r_data)
+  data_days: 90  # For epi_data only (Re_window used for Re_data)
   data_burn_in: 30  # Number of days to simulate before data kicks in (for epi_data only)
 
 # Weights for epi_data calibration only (set metrics to 0 to turn off)
@@ -672,7 +719,7 @@ emulator:
 
 # Adaptive sampling options
 #
-# NOTE: Adaptive sampling is very useful for fitting to epi_data - not so much for R_eff
+# NOTE: Adaptive sampling is very useful for fitting to epi_data - not so much for Re
 adaptive_sampling:
   rounds: 1                   # Number of rounds (set to 0 to turn adaptive sampling off)
   acquisition_points: 10000   # Number of randomly sampled points to evaluate for resampling
@@ -684,8 +731,8 @@ optimisation:
   optim_runs: 20  # Number of times to perform optimisation
   optim_iters: 100  # Number of ASD iterations
   
-# Time period for fitting to R_eff
-r_eff_fit:
+# Time period for fitting to Re
+Re_fit:
   start_day: 10  # Start fitting from day n of simulations
   n_days: 5      # Take the average over the next n days
   

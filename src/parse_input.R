@@ -12,35 +12,38 @@
 # ---------------------------------------------------------
 # Read yaml input file and perform some additional parsing
 # ---------------------------------------------------------
-parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
+parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE) {
   
   # NOTE: The initial parsing work is done by read_yaml from yaml package
   
-  # Paths to default and user-defined yaml input files
-  yaml_file_default = file.path(o$pth$config, "default.yaml")
-  yaml_file_user    = file.path(o$pth$input, paste0(o$analysis_name, ".yaml"))
-  
   # Check that the user-defined file actually exists 
-  if (!file.exists(yaml_file_user))
+  if (!file.exists(o$pth$params_user))
     stop("\n You are attempting to run analysis: ", o$analysis_name, 
          "\n  but no yaml file was found with this name", 
-         "\n  (missing file: ", yaml_file_user, ")")
+         "\n  (missing file: ", o$pth$params_user, ")")
   
   # Load default model parameters
-  y = read_yaml(yaml_file_default)
+  y = read_yaml(o$pth$params_default)
   
   # Load user-defined model parameters
-  y_user = read_yaml(yaml_file_user)
+  y_user = read_yaml(o$pth$params_user)
   
   # Overwrite any parameter defaults for which we have user-defined values 
   #
   # NOTE: A few sanity checks on the user-defined inputs are perfomed here
-  y = overwrite_defaults(y, y_user)
+  list[y, u] = overwrite_defaults(y, y_user)
+  
+  # If we only need uncertainty details, return out now
+  if (!is.null(uncert) && uncert == "*read*")
+    return(u)
   
   # ---- Apply fitting/fitted parameters if provided ----
   
   # Apply fitted parameters (or simulate parameter sets when calibrating)
-  y = fit_yaml(o, y, fit)  # See calibration.R
+  y = apply_fit(y, fit)  # See calibration.R
+  
+  # Apply parameter uncertainty values
+  y = apply_uncertainty(y, uncert) # See uncertainty.R
   
   # ---- Apply scenario of choice ----
   
@@ -68,6 +71,9 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   # Hardcode maximum upper age to 90
   age_max = 90
   
+  # All ages modelled
+  y$ages = 1 : age_max - 1L
+  
   # We're not yet interpolating between ages - throw an error if insufficiant age bins
   if (length(y$demography) != age_max)
     stop("Single-year age bins must be provided from year 1 up to year ", age_max)
@@ -80,8 +86,18 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   round_err = sum(y$demography) - y$population_size
   y$demography[1] = y$demography[1] - round_err
   
-  # Age structure (in years) - defines upper bound of bin
-  y$age = list(all = 1 : age_max - 1, groups = seq(10, age_max, by = 10))  
+  # Parse function: daily age-related probability of natural, non-COVID death
+  y$natural_death_age = y$natural_death_age %>%
+    parse_fn(along = list(x = y$ages)) %>%
+    as_named_dt("probability") %>%
+    mutate(age = y$ages, .before = 1)
+  
+  # Disease states to replace with newborns depends on user-defined options
+  if (y$replace_deceased == TRUE)  y$replace_state = c("natural_dead", "dead")
+  if (y$replace_deceased == FALSE) y$replace_state = "natural_dead"
+  
+  # Scale constant import of cases per 100,000
+  y$import_constant = y$import_constant / 1e5
   
   # ---- Network ----
   
@@ -114,12 +130,127 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   if (any(sapply(y$contact_matrix_countries, nchar) != 2))
     stop("Use ISO Alpha-2 country codes for 'contact_matrix_countries' parameters")
   
+  # ---- Seasonality ----
+  
+  # Parse seasonality evaluation points
+  y$seasonality_fn$x = parse_fn(y$seasonality_fn$x)
+  
+  # Evaluate seasonality function
+  seasonality_profile = parse_fn(y$seasonality_fn)
+  
+  # Check this generates a vector and has 365 values
+  if (length(seasonality_profile) != 365)
+    stop("Seasonality profile must be a vector of 365 values")
+  
+  # Inverse seasonality (so peak is during coldest period) and normalise
+  seasonality_trans   = seasonality_profile - min(seasonality_profile)
+  seasonality_inverse = 1 - seasonality_trans / max(seasonality_trans)
+  
+  # Scale seasonality effect based on inverse temprerature and seasonality_scaler
+  seasonality_scale = 1 + y$seasonality_scaler * (seasonality_inverse - 1)
+  
+  # We may want to temporally 'shift' so we can initiate at a particular time of year
+  seasonality_shift = c(seasonality_scale[(y$seasonality_shift + 1) : 365], 
+                        seasonality_scale[seq_len(y$seasonality_shift)])
+  
+  # Extend (or clip) scaled seasonality profile to appropriate number of days
+  y$seasonality = rep_len(seasonality_shift, y$n_days)
+  
+  # Also generate seasonality curve for initialisation period
+  y$seasonal_init = rev(rep_len(rev(seasonality_shift), n_days_init))
+  
+  # Remove redundant items
+  y[c("seasonality_fn", "seasonality_scaler", "seasonality_shift")] = NULL
+  
+  # ---- Viral variants ----
+  
+  # Initiate primary variant - infectivity & severity always relevant to this
+  variant_primary = list.append(y$variant_primary, import_day = 0)
+  
+  # Scale infectivity & severity of novel variants given primary variant properties
+  variants_novel = list2dt(y$variants_novel) %>%
+    filter(import_number > 0) %>% 
+    mutate(import_number = ceiling(import_number / 1e5 * y$population_size), 
+           infectivity   = infectivity * variant_primary$infectivity, 
+           severity      = severity    * variant_primary$severity)
+  
+  # Concatenate variants
+  #
+  # NOTE: Novel variants may be trivial for a subset of scenarios within an analysis
+  y$variants = setDT(bind_rows(variant_primary, variants_novel))
+  
+  # Remove redundant items
+  y[c("variant_primary", "variants_novel")] = NULL
+  
+  # ---- Prognosis probabilities ----
+  
+  # Handled in seperate function (see prognosis.R)
+  y = prognosis_probabilities(y)
+  
+  # ---- Viral load profile ----
+  
+  # Store max viral shedding days: period of infectiousness for average severe case
+  n_shed_days = y$durations$presymptomatic$mean + y$durations$infectious_severe$mean
+  
+  # Either a constant daily average (multiplied by beta in model)
+  if (y$viral_load_infectivity == FALSE) {
+    y$viral_load_profile = rep(1 / n_shed_days, n_shed_days)
+    
+  } else {  # Or a profile represnted by viral load...
+    
+    # Evaluate user-defined function for all days for which viral shedding is possible
+    viral_load_shape = parse_fn(fn_args = y$viral_load_shape_fn, 
+                                along   = list(x = paste("1", ":", n_shed_days)))
+    
+    # Normalise so we have the peak at 1 (multiplied by beta in model)
+    y$viral_load_profile = viral_load_shape / max(viral_load_shape)
+  }
+  
+  # Remove redundant items
+  y[c("viral_load_infectivity", "viral_load_shape_fn")] = NULL
+  
+  # ---- Acquired immunity ----
+  
+  # Points to evaluate (all of them)
+  x_vals = paste(1, ":", n_days_total)
+  
+  # Evaluate the booster dose function at these points
+  waning_profile = parse_fn(fn_args = y$acquired_immunity,
+                            along   = list(x = x_vals))
+  
+  # This is our vaccine booster profile
+  y$acquired_immunity = waning_profile
+  
+  # ---- Disease state durations ----
+  
+  # Initiate list to store parsed functions
+  durations_fn = list()
+  
+  # Loop through durations we want to construct funcions for
+  for (this_duration in names(y$durations)) {
+    
+    # Parse the function call, including default first argument (# of people)
+    parsed_fn = parse_fn(fn_args  = y$durations[[this_duration]], 
+                         along    = list(n = "length(id)"), 
+                         evaluate = FALSE)
+    
+    # Bound below by one day and round to nearest integer
+    bounded_fn = paste0("pmax(1, round(", parsed_fn, "))")
+    
+    # Create a string which - once evaluated - will assign the function to the durations_fn list
+    assign_fn = paste0("durations_fn$", this_duration, " = function(id) {", bounded_fn, "}")
+    
+    # Evaluate the function assignment
+    eval_str(assign_fn)
+  }
+  
+  # Overwrite list with corresponding functions
+  y$durations = durations_fn
+  
   # ---- Priority and risk groups ----
   
   # Priority groups: convert into datatable and sort by priority
-  y$priority_groups = y$priority_groups %>% 
-    lapply(as.data.table) %>% 
-    rbindlist() %>%
+  y$priority_groups = list2dt(y$priority_groups) %>%
     mutate(priority = as.integer(priority)) %>%
     arrange(priority)
   
@@ -132,8 +263,8 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
     risk_info = y$risk_groups[[risk_group]]
     
     # Ages for this risk group (bound above by maximum age)
-    ages = seq(min(risk_info$age_lower, max(y$age$all)), 
-               min(risk_info$age_upper, max(y$age$all)), by = 1)
+    ages = seq(min(risk_info$age_lower, max(y$ages)), 
+               min(risk_info$age_upper, max(y$ages)), by = 1)
     
     # Values to evaluate risk group probabilities for - normalised ages
     along_vals = list(x = seq(0, 1, length.out = length(ages)))
@@ -145,17 +276,35 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
     age_prob = (age_dist / mean(age_dist)) * risk_info$probability
     
     # Probability vector for ALL ages (zeros where appropriate)
-    risk_info$probability = rep(0, length(y$age$all))
-    risk_info$probability[y$age$all %in% ages] = age_prob
+    risk_info$probability = rep(0, length(y$ages))
+    risk_info$probability[y$ages %in% ages] = age_prob
     
     # Remove all redundant items and store age-probability values
     y$risk_groups[[risk_group]] = risk_info[qc(id, probability)]
   }
   
-  # ---- Importation ----
+  # ---- Testing and diagnosis ----
   
-  # Scale initial and constant imports per 100,000
-  y$import_constant = y$import_constant / 1e5
+  # Values to evaluate testing probabilities for - normalised ages
+  along_vals = list(x = y$ages / max(y$ages))
+  
+  # Loop through the different types of testing
+  for (test_type in names(y$testing)) {
+    test_info = y$testing[[test_type]]
+    
+    # Evaluate the user-defined function 
+    age_dist = parse_fn(fn_args = test_info$age_dist, along = along_vals)
+    
+    # Normalise to a mean of one then multiply through by probability AND sensitivity
+    test_info$age_prob = (age_dist / mean(age_dist)) * 
+      test_info$probability * test_info$sensitivity
+    
+    # Remove redundant items and store age-probability values
+    y$testing[[test_type]] = list.remove(test_info, "age_dist")
+  }
+  
+  # Parse 'when' mass testing events should happen
+  y$testing$mass_testing$when = parse_fn(fn_args = y$testing$mass_testing$when)
   
   # ---- NPI effect ----
   
@@ -191,152 +340,8 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
       pull(stringency)
   }
   
-  # ---- Seasonality ----
-  
-  # Parse seasonality evaluation points
-  y$seasonality_fn$x = parse_fn(y$seasonality_fn$x)
-  
-  # Evaluate seasonality function
-  seasonality_profile = parse_fn(y$seasonality_fn)
-  
-  # Check this generates a vector and has 365 values
-  if (length(seasonality_profile) != 365)
-    stop("Seasonality profile must be a vector of 365 values")
-  
-  # Inverse seasonality (so peak is during coldest period) and normalise
-  seasonality_trans   = seasonality_profile - min(seasonality_profile)
-  seasonality_inverse = 1 - seasonality_trans / max(seasonality_trans)
-  
-  # Scale seasonality effect based on inverse temprerature and seasonality_scaler
-  seasonality_scale = 1 + y$seasonality_scaler * (seasonality_inverse - 1)
-  
-  # We may want to temporally 'shift' so we can initiate at a particular time of year
-  seasonality_shift = c(seasonality_scale[(y$seasonality_shift + 1) : 365], 
-                        seasonality_scale[seq_len(y$seasonality_shift)])
-  
-  # Extend (or clip) scaled seasonality profile to appropriate number of days
-  y$seasonality = rep_len(seasonality_shift, y$n_days)
-  
-  # Also generate seasonality curve for initialisation period
-  y$seasonal_init = rev(rep_len(rev(seasonality_shift), n_days_init))
-  
-  # Remove redundant items
-  y[c("seasonality_fn", "seasonality_scaler", "seasonality_shift")] = NULL
-  
-  # ---- Prognosis probabilities ----
-  
-  # Parse function: age-related probabiliy of severe disease given person is symptomatic
-  y$severe_symptom_age  = parse_fn(y$severe_symptom_age,  along = list(x = y$age$groups))
-  
-  # Parse function: gge-related probabiliy of critical disease given person is severe
-  y$critical_severe_age = parse_fn(y$critical_severe_age, along = list(x = y$age$groups))
-  
-  # Parse function: age-related probabiliy of death given person is critical
-  y$death_critical_age  = parse_fn(y$death_critical_age,  along = list(x = y$age$groups))
-  
-  # ---- Disease state durations ----
-  
-  # Store max viral shedding days: period of infectiousness for average severe case
-  n_shed_days = y$durations$presymptomatic$mean + y$durations$infectious_severe$mean
-  
-  # Initiate list to store parsed functions
-  durations_fn = list()
-  
-  # Loop through durations we want to construct funcions for
-  for (this_duration in names(y$durations)) {
-    
-    # Parse the function call, including default first argument (# of people)
-    parsed_fn = parse_fn(fn_args  = y$durations[[this_duration]], 
-                         along    = list(n = "length(id)"), 
-                         evaluate = FALSE)
-    
-    # Bound below by one day and round to nearest integer
-    bounded_fn = paste0("pmax(1, round(", parsed_fn, "))")
-    
-    # Create a string which - once evaluated - will assign the function to the durations_fn list
-    assign_fn = paste0("durations_fn$", this_duration, " = function(id) {", bounded_fn, "}")
-    
-    # Evaluate the function assignment
-    eval_str(assign_fn)
-  }
-  
-  # Overwrite list with corresponding functions
-  y$durations = durations_fn
-  
-  # ---- Waning immunity ----
-  
-  # Points to evaluate (all of them)
-  x_vals = paste(1, ":", n_days_total)
-  
-  # Evaluate the booster dose function at these points
-  waning_profile = parse_fn(fn_args = y$acquired_immunity,
-                            along   = list(x = x_vals))
-  
-  # This is our vaccine booster profile
-  y$acquired_immunity = waning_profile
-  
-  # ---- Testing and diagnosis ----
-  
-  # Values to evaluate testing probabilities for - normalised ages
-  along_vals = list(x = y$age$all / max(y$age$all))
-  
-  # Loop through the different types of testing
-  for (test_type in names(y$testing)) {
-    test_info = y$testing[[test_type]]
-    
-    # Evaluate the user-defined function 
-    age_dist = parse_fn(fn_args = test_info$age_dist, along = along_vals)
-    
-    # Normalise to a mean of one then multiply through by probability AND sensitivity
-    test_info$age_prob = (age_dist / mean(age_dist)) * 
-      test_info$probability * test_info$sensitivity
-    
-    # Remove redundant items and store age-probability values
-    y$testing[[test_type]] = list.remove(test_info, "age_dist")
-  }
-  
-  # Parse 'when' mass testing events should happen
-  y$testing$mass_testing$when = parse_fn(fn_args = y$testing$mass_testing$when)
-  
-  # ---- Viral load profile ----
-  
-  # Either a constant daily average (multiplied by beta in model)
-  if (y$viral_load_infectivity == FALSE) {
-    y$viral_load_profile = rep(1 / n_shed_days, n_shed_days)
-    
-  } else {  # Or a profile represnted by viral load...
-    
-    # Evaluate user-defined function for all days for which viral shedding is possible
-    viral_load_shape = parse_fn(fn_args = y$viral_load_shape_fn, 
-                                along   = list(x = paste("1", ":", n_shed_days)))
-    
-    # Normalise so we have the peak at 1 (multiplied by beta in model)
-    y$viral_load_profile = viral_load_shape / max(viral_load_shape)
-  }
-  
-  # Remove redundant items
-  y[c("viral_load_infectivity", "viral_load_shape_fn")] = NULL
-  
-  # ---- Viral variants ----
-  
-  # Initiate primary variant - infectivity & severity always relevant to this
-  variant_primary = list.append(y$variant_primary, import_day = 0)
-  
-  # Scale infectivity & severity of novel variants given primary variant properties
-  variants_novel = list2dt(y$variants_novel) %>%
-    filter(import_number > 0) %>% 
-    mutate(import_number = ceiling(import_number / 1e5 * y$population_size), 
-           infectivity   = infectivity * variant_primary$infectivity, 
-           severity      = severity    * variant_primary$severity) # %>%
-  # arrange(import_day)
-  
-  # Concatenate variants
-  #
-  # NOTE: Novel variants may be trivial for a subset of scenarios within an analysis
-  y$variants = as.data.table(bind_rows(variant_primary, variants_novel))
-  
-  # Remove redundant items
-  y[c("variant_primary", "variants_novel")] = NULL
+  # Multiply through by npi_scaler for reduction of contacts due to NPIs
+  y$npi_contact_reduction = pmin(y$npi_effect * y$npi_scaler, 1)
   
   # ---- Vaccine properties ----
   
@@ -347,7 +352,7 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   v$profile = y$booster_profile = rep(NA, n_days_total)
   
   # Extract efficacy details for the vaccine
-  efficacy_df = as.data.table(v$efficacy)
+  efficacy_df = setDT(v$efficacy)
   
   # One row for each dose
   n_doses = nrow(efficacy_df)
@@ -393,6 +398,34 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   
   # Remove redundant items from y
   y[c("vaccine_defintion")] = NULL
+  
+  # ---- Next generation vaccines ----
+  
+  # Convert details to (potentially mulli-row) datatable
+  vaccine_df = list2dt(y$vaccine_update) %>%
+    rename(vaccine_type = id) %>%
+    mutate(target_variant = NA)
+  
+  # Loop through the various vaccines to introdcue
+  for (i in seq_len(nrow(vaccine_df))) {
+    
+    # Comma-seperated string of variants targetted by this vaccine
+    target_variants = y$variants %>%
+      filter(import_day < vaccine_df$release_day[i]) %>%
+      pull(id) %>%
+      paste(collapse = "*,*")
+    
+    # Use * denotation to denoted start and end of each string
+    vaccine_df$target_variant[i] = paste0("*", target_variants, "*")
+  }
+  
+  # Add a row for the initial vaccine
+  y$vaccine_update = vaccine_df %>%
+    add_row(vaccine_type   = "init", 
+            name           = v$name,
+            release_day    = y$n_days_init,
+            target_variant = paste0("*", variant_primary$id, "*"), 
+            .before = 1)
   
   # ---- Vaccine rollout ----
   
@@ -442,7 +475,7 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
     left_join(list2dt(y$booster_rollout)[probability > 0], by = "id") %>%
     mutate(probability = pmin(pmax(probability, 0, na.rm = TRUE), 1), 
            start       = pmin(start, force_start, na.rm = TRUE), 
-           force_end   = ifelse(is.na(force_end), Inf, force_end))  # Use Inf rather than NA
+           force_end   = pmin(force_end, y$n_days + 1L, na.rm = TRUE))
   
   # Scale boosters per day for this population size
   y$booster_doses = (y$booster_doses / 1e5) * y$population_size
@@ -503,7 +536,7 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   # ---- PrEP ----
   
   # Initiate a new list containing key PrEP details
-  y$prep = y$prep_defintion[qc(name, transmission_blocking)]
+  y$prep = y$prep_defintion[qc(name, infection_blocking)]
   
   # Evaluate the PrEP efficacy over all possible time points
   y$prep$profile = parse_fn(fn_args = y$prep_defintion$efficacy, 
@@ -566,12 +599,32 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
     rename(priority_group = id, 
            disease_state  = name, 
            treat_prob     = value) %>%
-    as.data.table()
+    setDT()
   
   # Remove redundant items
   y[c("treatment")] = NULL
   
-  # ---- Model states and model metrics ----
+  # ---- Model variables, states, metrics ----
+  
+  # Load list of model variables from file
+  v = read_yaml(o$pth$variables)$model_variables
+  
+  # Loop through model variables
+  for (x in names(v)) {
+    
+    # Set name within list item
+    v[[x]]$name = x
+    
+    # Append 'as.' for class conversion (see create_ppl() in model.R)
+    # v[[x]]$class = paste0("as.", v[[x]]$class)
+    
+    # Overwrite any "NA" values with numeric NA
+    if (v[[x]]$value == "NA")
+      v[[x]]$value = NA
+  }
+  
+  # Append formatted model vars
+  y$model_vars = v # unname(v)
   
   # Disease, care, and prognosis states
   y = parse_model_states(o, y)
@@ -581,26 +634,33 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
   
   # ---- Model output groupings ----
   
-  # Sanity check that max number of infections to count is positive
-  if (y$max_infections < 1)
-    stop("Parameter 'max_infections' must be a positive integer")
+  # Concatenate trivial values for vaccine and priority
+  vaccine_groups  = c(y$vaccine_update$vaccine_type, "none")
+  priority_groups = c(y$priority_groups$id, "none")
   
   # List of all possible metric groups, and their respective groups
-  y$count = list(age            = y$age$all, 
-                 infections     = 0 : y$max_infections, 
+  y$count = list(age            = y$ages, 
                  variant        = y$variants$id, 
-                 priority_group = c(y$priority_groups$id, "none"))
+                 infections     = 0 : y$max_infection_count, 
+                 vaccine_doses  = 0 : y$max_dose_count,
+                 vaccine_type   = vaccine_groups,
+                 priority_group = priority_groups)
   
-  # Dictionaries for variants and vaccine groups
+  # Dictionaries for number of infections and number of vaccine doses
+  infections_dict = setNames(paste(y$count$infections, "infections"), y$count$infections)
+  doses_dict      = setNames(paste(y$count$vaccine_doses, "doses"),   y$count$vaccine_doses)
+  
+  # Dictionaries for variants, vaccine groups, and priority groups
   variant_dict  = setNames(y$variants$name, y$variants$id)
-  priority_dict = setNames(y$priority_groups$name, y$priority_groups$id) %>% 
-    c(setNames("Vaccine ineligible", "none"))
+  vaccine_dict  = setNames(c(y$vaccine_update$name, "Unvaccinated"),        vaccine_groups)
+  priority_dict = setNames(c(y$priority_groups$name, "Vaccine ineligible"), priority_groups)
   
-  # Append to dict list (current contains metric names and IDs)
-  y$dict = list.append(y$dict, variant = variant_dict, priority_group = priority_dict)
-  
-  # Remove redundant items
-  y[c("max_infection_count")] = NULL
+  # Append to dict list (already contains metric names and IDs)
+  y$dict = list.append(y$dict, variant = variant_dict, 
+                       infections      = infections_dict, 
+                       vaccine_doses   = doses_dict, 
+                       vaccine_type    = vaccine_dict, 
+                       priority_group  = priority_dict)
   
   # ---- Final formatting ----
   
@@ -618,46 +678,17 @@ parse_yaml = function(o, scenario, fit = NULL, read_array = FALSE) {
 # ---------------------------------------------------------
 overwrite_defaults = function(y, y_overwrite) {
   
+  # Scenario blocks are redundant once files have been loaded
+  y_overwrite$scenario_block = NULL
+  
   # Sanity checks on user-defined inputs
   do_checks(y1 = y, y2 = y_overwrite)
   
-  # ---- Special case: booster force start ----
-  
-  # Booster start date uses FALSE to denote off - convert to integer NA for class consistency
-  na_fn = function(x) rapply(x, function(w) ifelse(isFALSE(w), as.integer(NA), w), how = "replace")
-  
-  # Apply to default yaml
-  y$booster_rollout = na_fn(y$booster_rollout)
-  
-  # ... and also to user-defined yaml (if defined)
-  if (!is.null(y_overwrite$booster_rollout))
-    y_overwrite$booster_rollout = na_fn(y_overwrite$booster_rollout)
-  
-  # ---- Special case: scenarios ----
-  
-  # The one exception for overwriting is scenarios, which we'll concatenate
+  # The key exception for overwriting is scenarios, which we'll concatenate
   y$scenarios = c(y$scenarios, y_overwrite$scenarios)
   
   # User defined scenarios can now be removed from this list
   y_overwrite$scenarios = NULL
-  
-  # ---- Special case: calibration parameters ----
-  
-  # If user has defined a calibration block, use this directly
-  if (!is.null(y_overwrite$calibration_parameters))
-    y$calibration_parameters = y_overwrite$calibration_parameters
-  
-  # Any user defined calibration can now be removed from this list
-  y_overwrite$calibration_parameters = NULL
-  
-  # ---- Special case: demography ----
-  
-  # If defined by user, overwrite
-  if (!is.null(y_overwrite$demography))
-    y$demography = y_overwrite$demography
-  
-  # Then remove from user-defined list
-  y_overwrite$demography = NULL
   
   # ---- Name all unnamed lists with unique IDs ----
   
@@ -675,9 +706,49 @@ overwrite_defaults = function(y, y_overwrite) {
   # Also for what we still need to overwrite with
   y_overwrite = name_lists(y_overwrite)
   
-  # ---- Overwrite defaults ----
+  # ---- Calibration and uncertainty parameters ----
   
-  # All individual items to overwrite
+  # If user has defined a calibration block, use this directly
+  if (!is.null(y_overwrite$calibration_parameters))
+    y$calibration_parameters = y_overwrite$calibration_parameters
+  
+  # Any user defined calibration can now be removed from this list
+  y_overwrite$calibration_parameters = NULL
+  
+  # Remove uncertainty parameters (we apply these after sampling from distributions)
+  list[y_overwrite, u] = parse_uncertainty(o, y_overwrite)
+  list[y, u]           = parse_uncertainty(o, y, u = u)
+  
+  # ---- Special case: demography ----
+  
+  # If defined by user, overwrite
+  if (!is.null(y_overwrite$demography))
+    y$demography = y_overwrite$demography
+  
+  # Then remove from user-defined list
+  y_overwrite$demography = NULL
+  
+  # ---- Special case: logical to numeric parameters ----
+  
+  # Vector of parameters for which to convert logical (default) to numeric
+  num_params = c("booster_rollout", "vaccine_update")
+  
+  # Booster start date uses FALSE to denote off - convert to integer NA for class consistency
+  na_fn = function(x) rapply(x, function(z) ifelse(is.logical(z), as.integer(NA), z), how = "replace")
+  
+  for (num_param in num_params) {
+    
+    # Apply to default yaml
+    y[[num_param]] = na_fn(y[[num_param]])
+    
+    # ... and also to user-defined yaml (if defined)
+    if (!is.null(y_overwrite[[num_param]]))
+      y_overwrite[[num_param]] = na_fn(y_overwrite[[num_param]])
+  }
+
+  # ---- Functional forms ----
+  
+  # All individual parameter items (see auxiliary.R)
   overwrite_items = names(unlist_format(y_overwrite))
   
   # Which of the these are functions - these are special cases
@@ -702,6 +773,8 @@ overwrite_defaults = function(y, y_overwrite) {
     # Drop these function items from recursive overwriting
     overwrite_items = overwrite_items[!fn_item_idx]
   }
+  
+  # ---- Overwrite defaults ----
   
   # Loop through whats left: values to overwrite with
   for (overwrite_item in overwrite_items) {
@@ -737,7 +810,7 @@ overwrite_defaults = function(y, y_overwrite) {
     eval_str("y$", overwrite_item, " = ", as_class)
   }
   
-  return(y) 
+  return(list(y, u)) 
 }
 
 # ---------------------------------------------------------
@@ -784,7 +857,7 @@ do_checks = function(y1 = NULL, y2 = NULL) {
       list_items = get(paste0("y", which(is_list)))[[err_param]]
       
       # If this is a 'function list', remove this parameter from vector of errors
-      if (names(list_items)[[1]] == "fn")
+      if (names(list_items)[[1]] %in% c("fn", "uncertainty"))
         errors = setdiff(errors, err_param)
     }
   }
@@ -944,7 +1017,7 @@ parse_scenarios = function(o, y, scenario, read_array) {
       y_scenario = list.remove(y$scenarios[[scenario_idx]], c("id", "name"))
       
       # Use overwrite function to check and apply item values
-      y = overwrite_defaults(y, y_scenario)
+      list[y, ] = overwrite_defaults(y, y_scenario)
     }
     
     # Keep reference to this scenario 'name'
@@ -1036,8 +1109,7 @@ parse_arrays = function(o, y, scenario) {
                   names_from  = var, 
                   values_from = val) %>%
       mutate(id = paste0(parent, ".", x)) %>%
-      select(id, all_of(array_vars)) %>%
-      as.data.table()
+      select(id, all_of(array_vars))
     
     # Extract full names of all array scenarios
     array_names = vars_df %>%
@@ -1077,7 +1149,7 @@ parse_arrays = function(o, y, scenario) {
                                  name = this_scen$name)
       
       # Reduce array_df down to just values we want to use for this child scenario
-      val_df = select(this_scen, -id, -name, -parent)
+      val_df = this_scen %>% select(-id, -name, -parent)
       
       # Loop through the values
       for (val_name in names(val_df)) {
@@ -1115,8 +1187,7 @@ parse_arrays = function(o, y, scenario) {
                variable_name = desc) %>%
         group_by(variable_id) %>%
         slice_head(n = 1) %>%
-        ungroup() %>%
-        as.data.table()
+        ungroup()
       
       # Dimension details
       dim_df = vars_df[!duplicated(vars_df$dim), .(dim, var)]
@@ -1126,8 +1197,7 @@ parse_arrays = function(o, y, scenario) {
         rename(setNames(dim_df$var, dim_df$dim)) %>%
         select(scenario = id, all_of(dim_df$dim)) %>%
         pivot_longer(cols = -scenario, 
-                     names_to = "variable_id") %>%
-        as.data.table()
+                     names_to = "variable_id")
       
       # Save this info for use when collating all results
       saveRDS(array_info, file = paste0(o$pth$arrays, parent, ".rds"))
@@ -1143,22 +1213,17 @@ parse_arrays = function(o, y, scenario) {
 parse_model_states = function(o, y) {
   
   # Load excel file
-  y$model_flows = read_excel(o$pth$states, 1) %>%
-    select(-notes) %>%
-    as.data.table()
+  y$model_flows = read_excel(o$pth$states, 1) %>% 
+    select(-notes) %>% 
+    setDT()
   
   # Distinct disease, care, and prognosis states
   y$model_states$disease   = unique(na.omit(y$model_flows$disease))
   y$model_states$care      = unique(na.omit(y$model_flows$care))
-  y$model_states$prognosis = unique(na.omit(y$model_flows$prognosis))
+  y$model_states$prognosis = unique(na.omit(y$model_flows$prognosis)) %>% setdiff("none")
   
-  # Prognosis states relating to severe disease - used when considering variant severity factor
-  all_prognosis    = setdiff(y$model_states$prognosis, "none")
-  severe_prognosis = setdiff(all_prognosis, c("asym", "mild"))
-  
-  # Store the indicies of severe and non-severe disease for indexing prognosis matrix
-  y$prognosis_idx = list(severe     = all_prognosis %in% severe_prognosis, 
-                         non_severe = !all_prognosis %in% severe_prognosis)
+  # Prognosis states relating to severe disease - used when calculating prognosis
+  y$model_states$severe = setdiff(y$model_states$prognosis, c("asym", "mild"))
   
   # Once diagnosed, only those with certain prognoses will go into isolation
   y$model_states$iso = unique(filter(y$model_flows, care_state == "iso")$prognosis_state)
@@ -1179,7 +1244,7 @@ parse_model_metrics = function(o, y) {
   
   # Metric details specified by user
   metrics_user = rbindlist(y$model_metrics, fill = TRUE) %>% 
-    {if (!"by" %in% names(.)) mutate(., by = NA) else .} %>% 
+    {if (!"by" %in% names(.)) mutate(., by = as.character(NA)) else .} %>% 
     mutate(metric = names(y$model_metrics), .before = 1) %>% 
     select(metric, grouping = by, report)
   
@@ -1244,14 +1309,14 @@ parse_model_metrics = function(o, y) {
   # ---- Parse the input ----
   
   # Store the key details - metric groupings and whether temporal and/or cumulative
-  y$metrics$df = select(metrics_df, -group_by, -label, -label_cum)
+  y$metrics$df = metrics_df %>% select(-group_by, -label, -label_cum)
   y$metrics$groupings = all_groupings
   
   # Store metric dictionary ('description' column)
   y$dict$metric = setNames(metrics_df$label, metrics_df$metric)
   
   # Also store cumulative metric dictionary ('label_cum' column)
-  cum_df = filter(metrics_df, cumulative == TRUE)
+  cum_df = metrics_df[cumulative == TRUE, ]
   y$dict$cumulative = setNames(cum_df$label_cum, cum_df$metric)
   
   # Remove redundant items

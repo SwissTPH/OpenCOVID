@@ -1,0 +1,129 @@
+---
+
+# List of variables tracked for each individual in the model
+model_variables: 
+  # ID of individual (can potentially be replaced by row number)
+  id:
+    class: integer
+    value: 0  # Assigned in create_pop
+  # Current age of individual
+  age:
+    class: integer
+    value: 0  # Assigned in create_pop
+  # Date index of birthday (used for annual ageing)
+  birthday:
+    class: integer
+    value: 0  # Assigned in create_pop
+  # Does this individual have relevant comorbidities
+  comorbidities:
+    class: logical
+    value: no
+  # Is this individual working in healthcare
+  healthcare_worker:
+    class: logical
+    value: no
+  # Is this individual unable to receive a vaccine
+  vax_unsuitable:
+    class: logical
+    value: no
+  # Disease state of infected individual pre-symptomatic, asymptomatic, mild, severe, or critical	
+  disease_state:
+    class: character
+    value: "susc"  # Assume everyone starts susceptible
+  # Is this individual in a hospital, care home or other?	
+  care_state:
+    class: character
+    value: "none"
+  # Prognosis state - used as alternative to viral load	
+  prognosis_state:
+    class: character
+    value: "none"
+  # Days since infection
+  days_infected:
+    class: numeric
+    value: "NA"
+  # Days since becoming infectious (after latent period)	
+  days_infectious:
+    class: numeric
+    value: "NA"
+  # Total number of infections experienced per person	
+  num_infections:
+    class: integer
+    value: 0
+  # Viral load for infected individuals	
+  viral_load:
+    class: numeric
+    value: "NA"
+  # Variant infected with (not modelling mutations, so this requires importation for each variant)
+  variant:
+    class: character
+    value: "none"
+  # Whether this individual would be willing to take part in mass testing
+  mass_test_accept:
+    class: logical
+    value: no  # Assigned in create_pop
+  # Potential data for a test (all infected individuals are assigned this)
+  test_date:
+    class: numeric
+    value: "NA"
+  # Date of diagnosis (ie positive test result)
+  diagnosis_date:
+    class: numeric
+    value: "NA"
+  # Date received treatment
+  treatment_date:
+    class: numeric
+    value: "NA"
+  # Number of days since PrEP - used to determine waning effect
+  days_prep:
+    class: numeric
+    value: "NA"
+  # Days until next event occurs	
+  days_next_event:
+    class: numeric
+    value: "NA"
+  # Number of days since recovery - used to define immunity profile	
+  days_recovered:
+    class: numeric
+    value: "NA"
+  # Captures immune state of individual, between 0 and 1
+  immune_state:
+    class: numeric
+    value: 0.0  # Assume everyone starts with no immunity
+  # Priority group for vaccination and treatment (group 1 highest priority)	
+  priority_group:
+    class: character
+    value: "none"  # Assigned in create_pop
+  # Whether this individual will accept vaccination
+  vaccine_accept:
+    class: logical
+    value: no  # Assigned in create_pop
+  # Whether this individual will accept vaccination booster dose
+  booster_accept:
+    class: logical
+    value: no  # Assigned in create_pop
+  # Date next booster dose is due to be administered
+  booster_due:
+    class: numeric
+    value: "NA"
+  # Number of days since vaccination - used to determine waning effect
+  days_vaccinated:
+    class: numeric
+    value: "NA"
+  # Number of days since vaccination booster dose
+  days_booster:
+    class: numeric
+    value: "NA"
+  # Total number of vaccine doses received
+  vaccine_doses:
+    class: integer
+    value: 0
+  # Current level of vaccine effect based on which vaccine and when vaccinated
+  vaccine_effect:
+    class: numeric
+    value: 0.0
+  # ID of latest vaccine
+  vaccine_type:
+    class: character
+    value: "none"
+

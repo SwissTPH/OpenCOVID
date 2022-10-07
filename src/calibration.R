@@ -2,7 +2,7 @@
 # CALIBRATION
 #
 # Fit parameters to either 1) a set of epi metrics over time, 
-# or 2) R_eff at the 'initial' point for forward projections.
+# or 2) Re at the 'initial' point for forward projections.
 #
 # Uses adaptive sampling to improve likelihood of locating 
 # global minimum of error between model output and fitting
@@ -25,17 +25,8 @@ run_calibration = function(o) {
   # Initiate fit list and perform a few checks on input yaml
   fit = setup_calibration(o)
   
-  # Load data (r_data and epi_data fitting only, see load_data.R)
-  if (fit$.use_data)
-    fit$data = load_data(o, fit$input, fit$synthetic)
-  
-  # Determine Reff target (r_data and r_user fitting only)
-  if (fit$.use_Reff) 
-    fit$target = extract_Reff(o, fit)
-  
-  # Set trivial value if data/target irrelevant
-  if (is.null(fit$target)) fit$target = NA
-  if (is.null(fit$data))   fit$data   = NA
+  # Load data - see load_data.R
+  list[fit, ] = load_data(o, fit, fit$synthetic)
   
   # ---- Main adaptive sampling loop ----
   
@@ -104,12 +95,12 @@ setup_calibration = function(o) {
   message(" - Calibration method: ", p$calibration_type)
   
   # Use logical flags rather than string compare for calibration_type
-  if (p$calibration_type == "r_user")   do = list(.use_data = FALSE, .use_Reff = TRUE)
-  if (p$calibration_type == "r_data")   do = list(.use_data = TRUE,  .use_Reff = TRUE)
-  if (p$calibration_type == "epi_data") do = list(.use_data = TRUE,  .use_Reff = FALSE)
+  if (p$calibration_type == "Re_user")  do = list(.use_data = FALSE, .use_Re = TRUE)
+  if (p$calibration_type == "Re_data")  do = list(.use_data = TRUE,  .use_Re = TRUE)
+  if (p$calibration_type == "epi_data") do = list(.use_data = TRUE,  .use_Re = FALSE)
   
   # Also use a flag for whether we'll be working with synthetic data
-  do$.use_synthetic = do$.use_data && opts$data_source == "synthetic"
+  do$.use_synthetic = do$.use_data && opts$data_synthetic
   
   # ---- Sanity checks on input yaml ----
   
@@ -130,9 +121,9 @@ setup_calibration = function(o) {
   if (p$n_days < fit_days)
     stop("Model calibration requires n_days >= ", fit_days)
   
-  # Objective function scaling doesn't work well when fitting R_eff
-  # if (do$.use_Reff && p$objective_scaling != "none")
-  #   stop("It is strongly recommended to use objective_scaling: 'none' when fitting R_eff")
+  # Objective function scaling doesn't work well when fitting Re
+  # if (do$.use_Re && p$objective_scaling != "none")
+  #   stop("It is strongly recommended to use objective_scaling: 'none' when fitting Re")
   
   # ---- Construct list for fitting details ----
   
@@ -163,6 +154,8 @@ setup_calibration = function(o) {
     if (!"synth" %in% names(fit_df))
       fit_df$synth = NA
     
+    browser()
+    
     # Ensure value is within bounds, use mean if doesn't exist, and convert to list
     fit$synthetic = fit_df %>%
       mutate(synth = pmax(synth, lower), 
@@ -175,15 +168,8 @@ setup_calibration = function(o) {
   
   # ---- Population scaler ----
   
-  # If fitting to epi data, we'll need to scale by country population
-  if (!do$.use_Reff) {
-    
-    # Set value in fit list
-    fit$pop_scaler = opts$country_pop / p$population_size
-    
-  } else {  # Otherwise set trivial value
-    fit$pop_scaler = NA
-  }
+  # Set value in fit list
+  fit$pop_scaler = opts$country_pop / p$population_size
   
   return(fit)
 }
@@ -247,44 +233,6 @@ load_calibration = function(o, ...) {
 }
 
 # ---------------------------------------------------------
-# Determine Reff target (r_data and r_user fitting only)
-# ---------------------------------------------------------
-extract_Reff = function(o, fit) {
-  
-  # Check whether we use data to calculate this R_eff
-  if (fit$.use_data) {
-    
-    # TODO: Remove hardcoding
-    serial_int = list(mean = 8.5, std = 2.5)
-    
-    # Ensure confirmed cases is being reported in the data
-    if (!"confirmed" %in% names(fit$data))
-      stop("Data of 'confirmed' cases needs to be specified when fitting 'R_data'")
-    
-    # Remove any NAs from data (occurs is user has specified a burn in period)
-    incidence = as.numeric(na.omit(fit$data$confirmed))
-    
-    # Calculate Reff, returning various details
-    R_info = calculate_Reff(incidence, serial_int, fit$input$r_eff_window)
-    
-    # Extract vector of Reff values (ignoring NAs)
-    R_eff_vec = as.numeric(na.omit(R_info$R_eff$value))
-    
-    # Values we wish to take the mean over (consistent with number of fit_days)
-    R_eff_idx = length(R_eff_vec) - fit$input$r_eff_fit$n_days : 0
-    
-    # Take the average over these days 
-    fit_target = mean(R_eff_vec[R_eff_idx])
-  }
-  
-  # If fitting to user-defined Re_ff, take this directly from yaml file
-  if (!fit$.use_data)
-    fit_target = fit$input$r_eff
-  
-  return(fit_target)
-}
-
-# ---------------------------------------------------------
 # Generate a set of parameter sets to simulate
 # ---------------------------------------------------------
 sample_parameters = function(o, fit, r_val) {
@@ -304,7 +252,7 @@ sample_parameters = function(o, fit, r_val) {
     
     # Load emulator produced in the previous round
     emulator_file = paste0("r", r_val - 1, "_emulator")
-    emulator = try_load(o$pth$fitting, emulator_file) 
+    emulator = try_load(o$pth$fitting, emulator_file)
     
     # We'll evaluate the emulator at a load of points and take the best ones
     eval_samples = tgp::lhs(as_opts$acquisition_points, fit$bounds) %>%
@@ -323,7 +271,7 @@ sample_parameters = function(o, fit, r_val) {
       select(-expected_improvement) %>%
       as.matrix()
     
-    # NOTE: We prveiously removed points that were very close, but have now scrapped that
+    # NOTE: We previously removed points that were very close, but have now scrapped that
   }
   
   # Number of samples to simulate (each one for multiple seeds)
@@ -348,7 +296,7 @@ sample_parameters = function(o, fit, r_val) {
       expand_grid(seed = 1 : em_opts$seeds) %>%
       mutate(param_id = get_param_id(round, param_idx, seed)) %>%
       select(param_id, round, seed, all_of(fit$params)) %>%
-      as.data.table()
+      setDT()
     
     # Extract parameter IDs
     param_ids = paramset_df$param_id
@@ -383,22 +331,24 @@ simulate_parameters = function(o, r_idx, param_ids) {
   
   # Skip this process if nothing to run
   if (n_simulations > 0) {
-    
+
     # Append reference to round index in job description string
     job_type = paste0("fitting::", r_idx)
-    
+
     # Submit all jobs to the cluster (see auxiliary.R)
     submit_cluster_jobs(o, n_simulations, "bash_submit.sh", job_type)
-    
+
     # Throw an error if any cluster jobs failed (see auxiliary.R)
     err_tol = floor(n_simulations * o$sample_err_tol)
     stop_if_errors(o$pth$log, o$err_file, err_tol = err_tol)
-    
+
     # Remove all log files if desired (generally a good idea unless debugging)
     if (o$rm_cluster_log) unlink(paste0(o$pth$log, "*"), force = TRUE)
   }
   
   # ---- Load and summarise output ----
+  
+  message("  > Concatenating simulation outcomes")
   
   # Load all files into one long datatable and combine with samples
   output_list = lapply(output_files, function(x) try(readRDS(x), silent = TRUE))
@@ -419,8 +369,20 @@ quality_of_fit = function(o, fit, r_idx, do_plot = FALSE) {
   paramset_df = try_load(o$pth$fitting, paste0(r_idx, "_paramsets"))
   output_df   = try_load(o$pth$fitting, paste0(r_idx, "_output"))
   
-  # When fitting to R_eff
-  if (fit$.use_Reff) {
+  # Calibration metrics may need to be scaled
+  scaler   = 1e5 / fit$input$population_size
+  scale_df = fit$input$metrics$df %>% 
+    select(metric, scale) %>%
+    mutate(scaler = ifelse(scale, scaler, 1))
+  
+  # Apply scaler where appropriate
+  output_df = output_df %>%
+    left_join(scale_df, by = "metric") %>%
+    mutate(value = value * scaler) %>%
+    select(-scale, -scaler)
+  
+  # When fitting to Re
+  if (fit$.use_Re) {
     
     # Take the mean over dates and calculate squared difference between model and data
     obj_value_df = output_df %>%
@@ -429,11 +391,11 @@ quality_of_fit = function(o, fit, r_idx, do_plot = FALSE) {
       mutate(obj_value = (fit$target - value) ^ 2, 
              obj_value = log(1 + obj_value * 100) + 1) %>%
       select(-value) %>%
-      as.data.table()
+      setDT()
   }
   
   # When fitting to epi data
-  if (!fit$.use_Reff) {
+  if (!fit$.use_Re) {
     
     # Format metric, time, and peak weights
     weight_df = format_weights(fit$input, fit$data)
@@ -441,11 +403,11 @@ quality_of_fit = function(o, fit, r_idx, do_plot = FALSE) {
     # Sum the log weighted squared difference between model and data (all metrics, all time points)
     obj_value_df = output_df %>%
       inner_join(weight_df, by = c("metric", "date")) %>%
-      mutate(target = target / fit$pop_scaler,  # Scale down data to per 100k people
+      mutate(# target = target / fit$pop_scaler,  # Scale down data to per 100k people
              err    = weight * (target - value) ^ 2) %>%
       group_by(param_id, round, seed) %>%
       summarise(obj_value = log(sum(err))) %>%
-      as.data.table()
+      setDT()
   }
   
   # Join parameter sets to obj values and normalise error
@@ -506,10 +468,9 @@ format_weights = function(p, data, all = FALSE) {
   
   # All possible time and peak weights
   weight_all_df = data %>%
-    pivot_longer(cols = names(data)[-1], 
-                 names_to  = "metric", 
-                 values_to = "target") %>%
-    filter(!is.na(target)) %>%
+    filter(type == "fit", 
+           !is.na(value)) %>%
+    select(date, metric, target = value) %>%
     group_by(metric) %>%
     # Punish errors at more recent dates...
     mutate(w_time_none   = 1, 
@@ -520,8 +481,9 @@ format_weights = function(p, data, all = FALSE) {
            w_peak_weak   = (target / max(target, na.rm = TRUE)) ^ 0.5, 
            w_peak_strong = (target / max(target, na.rm = TRUE)) ^ 2) %>%
     # Join with metric weights...
+    ungroup() %>%
     left_join(w_metric, by = "metric") %>%
-    as.data.table()
+    setDT()
   
   # We may want this full dataframe for plotting purposes
   if (all == TRUE)
@@ -567,11 +529,11 @@ get_paramset_id = function(param_id) {
 # ---------------------------------------------------------
 get_fit_days = function(p) {
   
-  # If fitting to R_eff
+  # If fitting to Re
   if (p$calibration_type != "epi_data")
-    fit_days = p$r_eff_fit$start_day + 
-      p$r_eff_fit$n_days + 
-      p$r_eff_window - 1
+    fit_days = p$Re_fit$start_day + 
+      p$Re_fit$n_days + 
+      p$Re_window - 1
   
   # If fitting to epi data a longer period is likely needed
   if (p$calibration_type == "epi_data")
@@ -586,9 +548,9 @@ get_fit_days = function(p) {
 # ---------------------------------------------------------
 get_fit_metrics = function(p) {
   
-  # If fitting to R_eff: only one metric needed
+  # If fitting to Re: only one metric needed
   if (p$calibration_type != "epi_data")
-    fit_metrics = "R_effective"
+    fit_metrics = "Re"
   
   # If fitting to epi data
   if (p$calibration_type == "epi_data") {
@@ -604,7 +566,7 @@ get_fit_metrics = function(p) {
 # ---------------------------------------------------------
 # Alter key parameters in yaml file for fitting simulation
 # ---------------------------------------------------------
-fit_yaml = function(o, y, fit_list) {
+apply_fit = function(y, fit_list) {
   
   # Only needed if fitting OR using fitted parameters
   if (!is.null(fit_list)) {

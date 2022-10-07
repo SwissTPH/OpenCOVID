@@ -2,17 +2,53 @@
 
 # A simple example of an input file to run an OpenCOVID demo
 
+# ---- Calibration options ----  
+
+# Type of calibration to perform
+calibration_type: "Re_data"
+
+# Report incidence in order to calculate Re
+model_metrics:
+  confirmed:
+    report: yes
+
+# Additional options for r_data and epi_data calibration
+calibration_options: 
+  data_synthetic: no
+  data_source:
+    epi: "ECDC"  # OPTIONS: 'ECDC'
+    Re: "ETH"  # OPTIONS: 'ECDC' or 'ETH'
+  data_end: 2022-06-01
+  data_days: 90  # For epi_data only (r_eff_window used for r_data)
+  data_burn_in: 30  # Number of days to simulate before data kicks in (for epi_data only)
+
+# Weights for epi_data calibration only (set metrics to 0 to turn off)
+
 # ---- Baseline settings ----
         
 # Run all simulations for 500 days into the future
 n_days: 200
-n_days_init: -365
+n_days_init: -730
 
-# Initial conditions 
-previously_infected: 0.25
+# Initial conditions (sample from normal distribution)
+previously_infected:
+  uncertainty:
+    fn: "norm"  # Options: unif (min, max), norm (mean, sd), pois (lambda)
+    mean: 0.4
+    sd: 0.04
 
-# Initiate future at an effective reporduction number of 1.2
-r_eff: 1.2
+# Number of days to shift seasonality start
+seasonality_shift: 150  # 0 represents mid-winter
+
+# Seasonality conditions (sample from normal distribution)
+seasonality_scaler:
+  uncertainty:
+    fn: "norm"  # Options: unif (min, max), norm (mean, sd), pois (lambda)
+    mean: 0.3
+    sd: 0.04
+
+# Initiate future at some effective reporduction number
+Re: 1.05
 
 # Priority group definitions
 priority_groups: 
@@ -24,6 +60,23 @@ priority_groups:
   name: "18-65 year olds"
   priority: 2
   condition: "age >= 18 & age < 65"
+  
+# Initiate novel variants
+variants_novel:
+- id: deltaplus
+  name: "Delta+ (AY.4.2)"
+  import_day: 50
+  import_number: 0
+  infectivity: 1.0
+  severity: 1.0
+  immuno_escape: 0.1
+- id: epsilon
+  name: "Epsilon"
+  import_day: 100
+  import_number: 0
+  infectivity: 1.0
+  severity: 1.0
+  immuno_escape: 0.5
 
 # Vaccination history
 vaccine_history: 
@@ -36,7 +89,7 @@ vaccine_history:
   init_start: -80   # Days into the past that vaccination program began
   init_end: 0       # Set to zero as vaccination program ongoing
 
-# Vaccination future
+# Vaccination future 
 vaccine_rollout: 
 - id: high_risk
   max_coverage: 0.9
@@ -50,17 +103,23 @@ vaccine_rollout:
 # Vaccine booster rollout (only groups to recieve a booster need to be specified)
 booster_rollout:
 - id: high_risk
-  probability: 0.0   # Probability of accepting/receiving a booster dose - set to zero in the baseline
+  probability: 0.95  # Probability of accepting/receiving a booster dose - set to zero in the baseline
   cycle_period: 180  # Booster dose administered every cycle_period days
   start: -30         # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
   force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
   force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
 - id: low_risk
-  probability: 0.0   # Probability of accepting/receiving a booster dose - set to zero in the baseline
+  probability: 0.25  # Probability of accepting/receiving a booster dose - set to zero in the baseline
   cycle_period: 365  # Booster dose administered every cycle_period days
   start: 100         # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
   force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
   force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
+  
+# Vaccine updates that effectively protect from exposure to all currently circulating variants
+vaccine_update:
+- id: next_gen_vax
+  name: "2nd generation vaccine"
+  release_day: no  # Set to integer to use
 
 # Pre-exposure prophylaxis coverage scale up
 prep_rollout: 
@@ -82,23 +141,6 @@ treatment:
   prob_mild: 0.0
   prob_severe: 0.2
   prob_crit: 0.8
-
-# Initiate a novel variant
-variants_novel:
-- id: deltaplus
-  name: "Delta+ (AY.4.2)"
-  import_day: 50
-  import_number: 0
-  infectivity: 1.0
-  severity: 1.0
-  immuno_escape: 0.05
-- id: epsilon
-  name: "Epsilon"
-  import_day: 2
-  import_number: 0
-  infectivity: 1.0
-  severity: 1.0
-  immuno_escape: 0.25
   
 # ---- Alternative scenarios ----
 
@@ -106,30 +148,39 @@ variants_novel:
 scenarios:
 # Single scenario assessing impact of frequent booster doses
 - id: booster
-  name: "Frequent booster doses"
-  booster_rollout: 
-  - id: high_risk
-    probability: 0.95
+  name: "Frequent low-risk booster doses"
+  booster_rollout:
   - id: low_risk
-    probability: 0.25
+    probability: 0.5
+    cycle_period: 180
 # Single scenario effect of an immuno-escaping variant
 - id: immuno_escape
   name: "Immuno escape variant"
   variants_novel:
   - id: epsilon
-    name: "Epsilon"
+    import_day: 100
     import_number: 20
+# Single scenario effect of an immuno-escaping variant with next generation vaccine
+- id: vaccine_update
+  name: "Next generation vaccine"
+  variants_novel:
+  - id: epsilon
+    import_day: 100
+    import_number: 20    
+  vaccine_update:
+  - id: next_gen_vax
+    release_day: 150
 # Array scenario assessing novel variant infectivty
 - id: deltaplus_array
   name: "Delta+ variant"
-  variants_novel: 
+  variants_novel:
   - id: deltaplus
     name: "Delta+ (AY.4.2)"
     import_number: 20
     infectivity:
       array:
         id: inf
-        name: "infectivity" 
+        name: "infectivity"
         from: 1.0
         to: 1.5
         by: 0.1

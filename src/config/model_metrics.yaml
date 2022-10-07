@@ -1,8 +1,19 @@
 ---
   
 # ---------------------------------------------------------
-# Epidemiological metrics
+# Disaggregated epidemiological metrics
 # ---------------------------------------------------------
+
+# New SARS-CoV-2 infections per day (including imported cases)
+all_new_infections:
+  label:     "SARS-CoV-2 infections per day"
+  label_cum: "Cumulative SARS-CoV-2 infections"
+  temporal:   yes
+  coverage:   no
+  aggregate:  yes
+  cumulative: yes
+  scale:      yes
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Reporting of new COVID-19 cases each day (includes a reporting delay)
 confirmed:
@@ -13,7 +24,7 @@ confirmed:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Reporting of new COVID-19-related deaths each day (includes a reporting delay)
 deaths:
@@ -24,7 +35,7 @@ deaths:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Hospital (non-ICU) beds that are in use in any one day
 hospital_beds:
@@ -34,7 +45,7 @@ hospital_beds:
   aggregate:  yes
   cumulative: no
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # ICU beds that are in use in any one day
 icu_beds:
@@ -44,7 +55,7 @@ icu_beds:
   aggregate:  yes
   cumulative: no
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # New hospital (non-ICU) admissions each day (does not consider those leaving hospital)
 hospital_admissions:
@@ -55,7 +66,7 @@ hospital_admissions:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # New ICU admissions each day (does not consider those leaving ICU)
 icu_admissions:
@@ -66,7 +77,7 @@ icu_admissions:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Newly recovered people each day
 recovered:
@@ -77,47 +88,7 @@ recovered:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group, variant
-
-# Prevalence of each modelled variant over time
-variant_prevalence:
-  label:     "Variant prevalence"
-  temporal:   yes
-  coverage:   no
-  aggregate:  no
-  cumulative: no
-  scale:      no
-  group_by:   variant
-
-# Population-level effective reproduction number
-R_effective:
-  label:     "Effective reproduction number"
-  temporal:   yes
-  coverage:   no
-  aggregate:  yes
-  cumulative: no
-  scale:      no
-  group_by:   na
-
-# Effective contact reduction from NPIs, also considering scaling factor
-contact_reduction:
-  label:     "NPI contact reduction"
-  temporal:   yes
-  coverage:   no
-  aggregate:  yes
-  cumulative: no
-  scale:      no
-  group_by:   na
-
-# Seasonal infectiousness over time
-seasonality:
-  label:     "Seasonal infectiousness (%)"
-  temporal:   yes
-  coverage:   no
-  aggregate:  yes
-  cumulative: no
-  scale:      no
-  group_by:   na
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Newly occuring locally-transmitted infections each day
 new_local_infections:
@@ -128,7 +99,7 @@ new_local_infections:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # New imported infections each day
 new_importations:
@@ -139,18 +110,7 @@ new_importations:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group, variant
-
-# All new infections including imported cases and variant importations
-all_new_infections:
-  label:     "SARS-CoV-2 infections per day"
-  label_cum: "Cumulative SARS-CoV-2 infections"
-  temporal:   yes
-  coverage:   no
-  aggregate:  yes
-  cumulative: yes
-  scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Total number of people currently infected
 currently_infected:
@@ -160,7 +120,7 @@ currently_infected:
   aggregate:  yes
   cumulative: no
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Total number of people currently infectious
 currently_infectious:
@@ -170,7 +130,7 @@ currently_infectious:
   aggregate:  yes
   cumulative: no
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Total number of people currently infected with symptoms
 currently_symptomatic:
@@ -180,7 +140,7 @@ currently_symptomatic:
   aggregate:  yes
   cumulative: no
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
 
 # Total number of people currently in isolation
 currently_isolated:
@@ -190,7 +150,21 @@ currently_isolated:
   aggregate:  yes
   cumulative: no
   scale:      yes
-  group_by:   none, age, priority_group, variant
+  group_by:   none, age, priority_group, vaccine_type, vaccine_doses, variant
+  
+# ---------------------------------------------------------
+# Population-level epidemiological metrics
+# ---------------------------------------------------------
+
+# Population-level effective reproduction number
+Re:
+  label:     "Effective reproduction number"
+  temporal:   yes
+  coverage:   no
+  aggregate:  yes
+  cumulative: no
+  scale:      no
+  group_by:   na
 
 # Population susceptibility (immunity weighted number of susceptibles)
 pop_susceptibility:
@@ -221,6 +195,16 @@ seroprevalence:
   cumulative: no
   scale:      no
   group_by:   na
+  
+# Prevalence of each modelled variant over time
+variant_prevalence:
+  label:     "Variant prevalence"
+  temporal:   yes
+  coverage:   no
+  aggregate:  no
+  cumulative: no
+  scale:      no
+  group_by:   variant
 
 # Number of infections experienced per individual
 n_infections: 
@@ -231,12 +215,32 @@ n_infections:
   cumulative: no
   scale:      no
   group_by:   infections
+  
+# Seasonal infectiousness over time
+seasonality:
+  label:     "Seasonal infectiousness (%)"
+  temporal:   yes
+  coverage:   no
+  aggregate:  yes
+  cumulative: no
+  scale:      no
+  group_by:   na
 
 # ---------------------------------------------------------
-# Vaccine and treatment metrics
+# Intervention metrics
 # ---------------------------------------------------------
 
-# Number of people who have received all necessary doses over time
+# Effective contact reduction from NPIs, also considering scaling factor
+contact_reduction:
+  label:     "NPI contact reduction"
+  temporal:   yes
+  coverage:   no
+  aggregate:  yes
+  cumulative: no
+  scale:      no
+  group_by:   na
+
+# Number of people who have received all primary doses over time
 n_vaccinated:
   label:     "Number fully vaccinated"
   label_cum: "Cumulative fully vaccinated"
@@ -247,7 +251,7 @@ n_vaccinated:
   scale:      yes
   group_by:   none, age, priority_group
 
-# Cumulative number of people who have received all necessary doses
+# Cumulative number of people who have received all primary doses
 total_vaccinated:
   label:     "Total number fully vaccinated"
   temporal:   yes
@@ -266,7 +270,7 @@ n_doses:
   aggregate:  yes
   cumulative: yes
   scale:      yes
-  group_by:   none, age, priority_group
+  group_by:   none, age, priority_group, vaccine_doses, vaccine_type
 
 # Cumulative doses: equivalent to cumulative of n_doses
 total_doses:
@@ -276,7 +280,17 @@ total_doses:
   aggregate:  yes
   cumulative: no
   scale:      yes
-  group_by:   none, age, priority_group
+  group_by:   none, age, priority_group, vaccine_doses, vaccine_type
+
+# Average number of vaccine and booster doses per person 
+# pop_n_doses:
+#   label:     "Per-person average number of vaccine doses"
+#   temporal:   yes
+#   coverage:   no
+#   aggregate:  no
+#   cumulative: no
+#   scale:      no
+#   group_by:   none, age, priority_group
 
 # Vaccine coverage: eligible defined by 'priority_groups', everyone gets all necessary doses
 vaccine_coverage:
@@ -440,6 +454,40 @@ treatment_coverage_pop:
   cumulative: no
   scale:      no
   group_by:   none, priority_group
+
+# ---------------------------------------------------------
+# Demographic metrics
+# ---------------------------------------------------------
+
+# Mean age of population still alive
+pop_age:
+  label:     "Average age of surviving population"
+  temporal:   yes
+  coverage:   no
+  aggregate:  yes
+  cumulative: no
+  scale:      no
+  group_by:   na
+
+# Number of newborns (replacing COVID-related and/or natural deaths)
+births:
+  label:     "Number of births"
+  temporal:   yes
+  coverage:   no
+  aggregate:  yes
+  cumulative: yes
+  scale:      yes
+  group_by:   na
+
+# Number of natural deaths
+natural_deaths:
+  label:     "Number of non-COVID deaths"
+  temporal:   yes
+  coverage:   no
+  aggregate:  yes
+  cumulative: yes
+  scale:      yes
+  group_by:   none, age, priority_group
   
 # ---------------------------------------------------------
 # Health economic metrics
@@ -479,3 +527,4 @@ overall_costs:
   cumulative: yes
   scale:      yes
   group_by:   na
+

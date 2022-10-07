@@ -35,13 +35,17 @@ run_cluster_job = function(o, job_type, task_id) {
     # Append flag that we want to perform fit
     fit_list = list.append(param_list, .perform_fit = TRUE)
     
+    # If uncertainty defined, take the average over the distribution(s)
+    uncert_list = sample_average(o)  # See uncertainty.R
+    
     message(" - Running model")
     
     # Simulate model with this parameter set
     result = model(o, "baseline", 
-                   seed = param_df$seed, 
-                   fit  = fit_list, 
-                   verbose = "bar")
+                   seed    = param_df$seed, 
+                   fit     = fit_list, 
+                   uncert  = uncert_list, 
+                   verbose = "none")
     
     # Extract metrics of interest over time points of interest
     output_df = result$output %>%
@@ -66,14 +70,33 @@ run_cluster_job = function(o, job_type, task_id) {
     # Select analysis to run based on job ID
     this_sim = sim_df[task_id, ]
     
+    # Check whether there are multiple parameter sets to sample
+    if (length(unique(sim_df$param_set)) > 1) {
+      
+      # If yes, load uncertainty datatable
+      uncert_df = try_load(o$pth$uncertainty, "uncertainty")
+      
+      # Select values relevant for this simulation
+      this_uncert = uncert_df[param_set == this_sim$param_set, ]
+      
+      # Convert to list
+      uncert_list = this_uncert$value %>% 
+        setNames(this_uncert$param) %>%
+        as.list()
+      
+    } else {  # Use trivial list if no parameter uncertainty
+      uncert_list = NULL
+    }
+    
     # Loaded fitted model parameters
-    fit_result = load_calibration(o)
+    fit_list = load_calibration(o)$best
     
     # Simulate the model for this scenario and this seed (see model.R)
     result = model(o, this_sim$scenario, 
-                   seed = this_sim$seed, 
-                   fit  = fit_result$best,
-                   verbose = "date") 
+                   seed    = this_sim$seed_num, 
+                   fit     = fit_list,
+                   uncert  = uncert_list, 
+                   verbose = "bar") 
     
     # Save model inputs and outputs as an RDS file
     saveRDS(result, paste0(o$pth$simulations, this_sim$sim_id, ".rds"))
@@ -96,14 +119,15 @@ run_cluster_job = function(o, job_type, task_id) {
       pull(sim_id)
     
     # Preallocate list for model outcomes
-    output_list = list()
+    output_list = time_list = list()
     
     # Loop through simulations and load model output
     for (sim_id in sim_ids) {
       sim_result = try_load(o$pth$simulations, sim_id, throw_error = !o$impute_failed_jobs)
       
-      # Convert to datatable and append sample number
+      # Store model output and time taken for each simulation
       output_list[[sim_id]] = sim_result$output
+      time_list[[sim_id]]   = sim_result$time_taken
       
       # Check if simulation was succesfully loaded
       if (!is.null(sim_result)) {
@@ -121,7 +145,7 @@ run_cluster_job = function(o, job_type, task_id) {
     if (length(output_list) == 0)
       stop("No results available for scenario '", scenario_name, "'")
     
-    # Otherwise values will be imputed
+    # Otherwise any missing values will be imputed
     impute_sims = setdiff(sim_ids, names(output_list))
     
     # Warn the user if this is required
@@ -129,10 +153,25 @@ run_cluster_job = function(o, job_type, task_id) {
       warning("Imputing values for missing simulations: ", 
               paste(impute_sims, collapse = ", "))
     
+    # Convert time taken of each sim into seconds (lubridate periods don't summarise well)
+    time_vec = unlist(lapply(time_list, period_to_seconds))
+    
+    # Mean simulation time 
+    time_mean = seconds_to_period(round(mean(time_vec)))
+    
+    # Min and max simulation times
+    time_min = seconds_to_period(min(time_vec))
+    time_max = seconds_to_period(max(time_vec))
+    
+    # Compile this info into a string
+    time_str = paste0(time_mean, " (", time_min, " - ", time_max, ")")
+    
     # Initiate analysis list - we'll add summarised model output to this
     result = list(analysis_name = o$analysis_name,
                   scenario_name = scenario_name,
                   time_stamp = format(Sys.time(), "%Y%m%d_%H%M"), 
+                  time_taken = time_str, 
+                  time_raw   = time_vec, 
                   yaml       = sim$yaml,
                   input      = sim$input, 
                   network    = sim$network)

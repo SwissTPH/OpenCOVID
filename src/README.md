@@ -1,8 +1,8 @@
 # OpenCOVID
 
-An individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynamics developed at Swiss TPH. A stochastic, discrete-time, setting-agnostic model with age, risk-group, network, and viral variant structure.
+An individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynamics developed at the Swiss Tropical and Public Health institute (Swiss TPH). A stochastic, discrete-time, setting-agnostic model with age, risk-group, contact network, waning immunity, and viral variant structure. Numerous interventions can be simulated, including vaccination (plus booster doses), pre-exposure prophylaxis, testing and diagnosis, treatment, isolation, and non-pharmaceutical interventions (such as physical distancing policies of varying intensities).
 
-##### Version 3.0 (alpha) (stable with R version 4.1)
+#### Version 4.0 (beta) (stable with R version 4.1)
 
 ## The repository
 
@@ -15,13 +15,12 @@ For applications, most of the interaction you will need to have with the model w
 For the sake of consistency and readability, a default file sets a value for each required model parameter, with the purpose of an analysis file to be to overwrite any such defaults. This overwriting can occur for all scenarios in the analysis or only certain scenarios.
 
 Two analysis files exist in the repository as standard:
-
 1. `/config/default.yaml`: A full analysis file with all default model parameters. The values in this file should not be altered. 
 2. `/input/demo.yaml`: A demo analysis file showing some basic functionality. This file shows an example of an 'array scenario' (discussed below).
 
 To create a new application, create a new YAML file and save this file in the `/input/` directory with a (machine readable) file name of your choice (ensuring the file has a `.yaml` extension). The contents of this directory are git-ignored (aside from `demo.yaml`), so it is perfectly acceptable to create and store any number of analysis files. To instruct the model to use a particular analysis file, set the value of `o$analysis_name` in `options.R` to the name of the analysis file (without the `.yaml` extension).
 
-It is good practice to familiarise yourself with the `/config/default.yaml` file to 1) have an understanding of which model parameters, metaparameters, and options are used by default, and 2) check synatx and formatting. If certain default values are sufficient, it is unecessary (but not an error) to define these parameters in your analysis file(s).
+It is good practice to familiarise yourself with the `/config/default.yaml` file to 1) have an understanding of which model parameters, metaparameters, and options are used by default, and 2) check syntax and formatting. If certain default values are sufficient, it is unnecessary (but not an error) to define these parameters in your analysis file(s).
 
 Note that it is generally not necessary to preserve ordering in analysis files.
 
@@ -29,7 +28,7 @@ Note that it is generally not necessary to preserve ordering in analysis files.
 
 ### Getting started
 - All model analyses are launched from `launch.R`
-  - Preferred usage is to 'source' this file (without echo is ideal)
+  - Preferred usage is to 'source' this file (without 'echo' is ideal)
 - Alternative command line usage is to `cd` to the code directory then call `sh bash_launch.sh`
 - Any required packages not currently installed are automatically downloaded and installed the very first time you run the model
   - If several large packages need to be installed this process may take a while (potentially 30-60 minutes)
@@ -65,22 +64,25 @@ Note that it is generally not necessary to preserve ordering in analysis files.
 For calibration type 1 (`"r_user"`) and type 2 (`"r_data"`), it is generally sufficient to calibrate only one model parameter: the average number of daily contacts (the default setting). For calibration type 3 (`"epi_data"`), it may be necessary to calibrate multiple model parameters in order to achieve a good fit between model output and the epidemiological data.
 
 The general calibration process is the same for all three approaches: 
+<ol type="i">
+<li>A number of parameter sets are sampled from the input parameter space using Latin Hypercube sampling</li>
+<li>These parameters sets are simulated for a sufficient period</li>
+<li>The quality of fit between the model output and the target value(s) is calculated for each parameter set</li>
+<li>A surrogate model emulator is trained to learn the relationship between parameter values and quality of fit</li>
+<li>Adaptive sampling is performed using the trained emulator and an expected improvement acquisition function</li>
+<li>Steps ii-iv are then repeated for the newly sampled parameter sets attained from step v</li>
+<li>Finally, the optimal parameter set that achieves the best quality of fit is determined via a stochastic decent algorithm that operates on the (re-)trained model emulator</li>
+</ol>
 
-1. A number of paramater sets are sampled from the input parameter space using Latin Hypercube sampling
-2. These parameters sets are simulated (multiple times) for a sufficient period
-3. The quality of fit between the model output and the target value(s) is calculated
-4. A surrogate model emulator is trained to learn the relationship between inputs and quality of fit
-5. Adaptive sampling is performed (multiple times if desired) using the trained emulator and an expected improvement acquisition function
-6. Steps 2-4 are then repeated for the newly sampled parameter sets attained from step 5
-7. Finally, the optimal parameter set that achieves the best quality of fit is determined via a stochastic decent algorithm that operates on the (re-)trained model emulator
-  
-The optimal parameter set determined from this process is then used in step 2 when simulating scenarios
+The best-fitting parameter set determined from this process is then used when simulating scenarios (pipeline step 2).
+
+Note that adaptive sampling can be performed multiple times if desired (set `adaptive_sampling::rounds` in your analysis file). In such a case, steps ii-v are repeated.
 
 ## Parallel computing
 
 Due to the potentially large number of individual-based model simulations required in 'steps' 1 and 2, it is necessary for OpenCOVID to be run using parallel computing. Ideally this would be done on a cluster computing framework. 
 
-Out of the box, OpenCOVID uses the UniBas (University of Basel) cluster to run simulations in parallel. To run the full model pipeline outside of the University of Basel network, you will first need to configure parallel simualtions, ideally on a cluster. 
+Out of the box, OpenCOVID uses the UniBas (University of Basel) cluster to run simulations in parallel. To run the full model pipeline outside of the University of Basel network, you will first need to configure parallel simulations, ideally on a cluster. 
 
 Note that step 0 simulates the model locally (as this is just one single simulation), and therefore does not require parallel computing.
 
@@ -91,7 +93,7 @@ Note that step 0 simulates the model locally (as this is just one single simulat
 
 ## Release details
 
-#### V3.0 release date: 23-08-2022
+#### V4.0 release date: 07-10-2022
 
 #### Development and maintenance:
 * Andrew J. Shattock (andrewjames.shattock@swisstph.ch)

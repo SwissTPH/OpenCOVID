@@ -25,18 +25,21 @@ set_dirs = function(o) {
   out$log   = file.path(pth$code, "log")
   out$cache = file.path(pth$code, "cache")
   
-  # ---- Input files ----
+  # ---- Input and configuration files ----
   
   # Parent path of all input files
   pth$input  = file.path(pth$code, "input")
   pth$config = file.path(pth$code, "config")
   
-  # Paths to specific configuration files
-  pth$states     = file.path(pth$config, "state_flows.xlsx")
-  pth$metrics    = file.path(pth$config, "model_metrics.yaml")
-  pth$my_options = file.path(pth$config, "my_options.yaml")
+  # Paths to model configuration files
+  pth$states    = file.path(pth$config, "state_flows.xlsx")
+  pth$metrics   = file.path(pth$config, "model_metrics.yaml")
+  pth$variables = file.path(pth$config, "model_variables.yaml")
   
-  # ---- Sub folder location (analysis name) ----
+  # ---- Set analysis name ----
+  
+  # User's custom options (may or may not exist)
+  pth$my_options = file.path(pth$config, "my_options.yaml")
   
   # If user has a 'my options' file, load it
   if (file.exists(pth$my_options)) {
@@ -48,6 +51,14 @@ set_dirs = function(o) {
     if (!is.null(overwrite_name))
       o$analysis_name = overwrite_name
   }
+  
+  # ---- Model parameter files ----
+  
+  # Default model parameters
+  pth$params_default = file.path(pth$config, "default.yaml")
+  
+  # User-specified model parameters for this analysis
+  pth$params_user = file.path(pth$input, paste0(o$analysis_name, ".yaml"))
   
   # ---- Output directories ----
   
@@ -64,6 +75,7 @@ set_dirs = function(o) {
   # Paths to scenario files
   out$scenarios   = file.path(pth_output, "2_scenarios", o$analysis_name)
   out$simulations = file.path(out$scenarios, "simulations")
+  out$uncertainty = file.path(out$scenarios, "uncertainty")
   out$arrays      = file.path(out$scenarios, "array_info")
   
   # Path to figures and other outputs

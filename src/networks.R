@@ -11,7 +11,7 @@
 # ---------------------------------------------------------
 # Parent function for create network
 # ---------------------------------------------------------
-create_network = function(o, p, ppl, do_plot, verbose) {
+create_network = function(p, ppl, do_plot, verbose) {
   
   if (verbose != "none")
     message("  > Creating contact network: ", p$network_structure)
@@ -39,22 +39,22 @@ create_network = function(o, p, ppl, do_plot, verbose) {
     
     # Create household network layer
     if ("household" %in% p$network_layers)
-      elist = create_household(o, p, ppl, elist)
+      elist = create_household(p, ppl, elist)
     
     # Create school network layer
     if ("school" %in% p$network_layers)
-      elist = create_school(o, p, ppl, elist)
+      elist = create_school(p, ppl, elist)
     
     # Create workplace network layer
     if ("workplace" %in% p$network_layers)
-      elist = create_workplace(o, p, ppl, elist)
+      elist = create_workplace(p, ppl, elist)
     
     # Finally, create residual 'other' layer
-    elist = create_residual(o, p, ppl, elist)
+    elist = create_residual(p, ppl, elist)
     
     # Plot network structure example (only if we have a household layer)
     if (do_plot == TRUE & "household" %in% p$network_layers)
-      plot_network_structure(o, p, ppl, elist)
+      plot_network_structure(p, ppl, elist)
     
     # Now ready to remove temporary 'age groups' variable
     ppl[, age_group := NULL]
@@ -64,11 +64,11 @@ create_network = function(o, p, ppl, do_plot, verbose) {
   
   # Create basic small-world, age-structured network
   if (p$network_structure == "age")
-    elist = create_age(o, p, ppl)
+    elist = create_age(p, ppl)
   
   # Create uber basic random network
   if (p$network_structure == "random")
-    elist = create_random(o, p, ppl)
+    elist = create_random(p, ppl)
   
   # ---- Perform sanity checks ----
   
@@ -82,9 +82,9 @@ create_network = function(o, p, ppl, do_plot, verbose) {
     stop("Requested an average of ", p$contacts, " contacts but generated ", round(mean_contacts, 3))
   
   # Calculate age correction factor
-  network = age_correction_factor(p, ppl, elist)
+  # network = age_correction_factor(p, ppl, elist)
   
-  return(network)
+  return(elist)
 }
 
 # ---------------------------------------------------------
@@ -117,7 +117,7 @@ setup_layers = function(p, age_bin = 5) {
   # ---- Initialize age breaks ----
   
   # Age breaks up to maximum modelled age, based on value of age_bin
-  age_breaks = c(seq(from = age_bin, to = max(p$age$all), by = age_bin), Inf)
+  age_breaks = c(seq(from = age_bin, to = max(p$ages), by = age_bin), Inf)
   
   # Associated labels (rename last label into something prettier)
   labels_breaks = levels(cut(0, breaks = c(0, age_breaks), include.lowest = TRUE))
@@ -144,7 +144,7 @@ setup_layers = function(p, age_bin = 5) {
 # ---------------------------------------------------------
 # Create household network layer
 # ---------------------------------------------------------
-create_household = function(o, p, ppl, elist) {
+create_household = function(p, ppl, elist) {
   
   # Create layer template: household
   household_template = create_layer_template(p$network, ppl, "h")
@@ -171,7 +171,7 @@ create_household = function(o, p, ppl, elist) {
 # ---------------------------------------------------------
 # Create school layer (incl. teachers)
 # ---------------------------------------------------------
-create_school = function(o, p, ppl, elist) {
+create_school = function(p, ppl, elist) {
   
   # Extract parameters for school network
   param_schools = p$network$layers[["s"]]
@@ -215,7 +215,7 @@ create_school = function(o, p, ppl, elist) {
 # ---------------------------------------------------------
 # Create Workplace layer
 # ---------------------------------------------------------
-create_workplace = function(o, p, ppl, elist) {
+create_workplace = function(p, ppl, elist) {
   
   # Extract parameters for workplace network
   param_workplace = p$network$layers[["w"]]
@@ -250,7 +250,7 @@ create_workplace = function(o, p, ppl, elist) {
 # ---------------------------------------------------------
 # Create POLYMOD residual layer
 # ---------------------------------------------------------
-create_residual = function(o, p, ppl, elist) {
+create_residual = function(p, ppl, elist) {
   
   # Calculation population statistics by age group
   pop_age_structure = ppl %>% group_by(age_group) %>% summarize(count = n())
@@ -316,7 +316,7 @@ create_residual = function(o, p, ppl, elist) {
 # ---------------------------------------------------------
 # Create standalone, basic small-world, age-structured network
 # ---------------------------------------------------------
-create_age = function(o, p, ppl) {
+create_age = function(p, ppl) {
   
   # Load POLYMOD contact matrix (single ages bins by default)
   polymod_matrix = load_polymod(p)$matrix
@@ -325,7 +325,7 @@ create_age = function(o, p, ppl) {
   polymod_age_groups = 1 : length(names(polymod_matrix))
   
   # Temporarily append an age_group variable in ppl, to later sample ID's according to age group
-  ppl[, age_group := min(which(p$age$all == age[1]), length(polymod_age_groups)), by = list(age)]
+  ppl[, age_group := min(which(p$ages == age[1]), length(polymod_age_groups)), by = list(age)]
   
   # How many individuals per age group have we created? Using data.tables .N variable and order by age_group
   created_demog = ppl[order(age_group), .N, by = list(age_group)]$N
@@ -378,7 +378,7 @@ create_age = function(o, p, ppl) {
 # ---------------------------------------------------------
 # Create standalone, uber basic random network
 # ---------------------------------------------------------
-create_random = function(o, p, ppl) {
+create_random = function(p, ppl) {
   
   # Number of nodes (people) and edges (contacts)
   n_edges = round(p$population_size * p$contacts / 2)
@@ -387,7 +387,8 @@ create_random = function(o, p, ppl) {
   network = play_erdos_renyi(n = p$population_size, m = n_edges, directed = FALSE)
   
   # Format edges into a datatable - this is what we really need
-  network_df = network %>% activate(edges) %>% as.data.table()
+  # network_df = network %>% activate(edges) %>% as.data.table()
+  network_df = setDT(activate(network, edges))
   
   # Repeat pair-wise so all contacts are double directed
   reverse_df = data.table(from = network_df$to,
@@ -417,7 +418,7 @@ age_correction_factor = function(p, ppl, elist) {
   # Breaks to create age bins
   # 
   # NOTE: The 10 year age bins relates the the 10-year prognosis values we use
-  age_breaks = seq(0, max(p$age$all) + 1, by = 10)
+  age_breaks = seq(0, max(p$ages) + 1, by = 10)
   
   # Total number of contacts per age group
   age_df = data.table(id = id, n_contacts = n_contacts) %>%
@@ -443,7 +444,7 @@ age_correction_factor = function(p, ppl, elist) {
 # ---------------------------------------------------------
 # Load POLYMOD contact matrix (single ages bins by default)
 # ---------------------------------------------------------
-load_polymod = function(p, age_bins = p$age$all) {
+load_polymod = function(p, age_bins = p$ages) {
   
   # Create contact matrix from socialmixr
   #

@@ -34,16 +34,24 @@ run_results = function(o) {
     plot_temporal(o, fig_name, plot_by = "variant")
     
     # Plot virus variants - area plot
-    fig_name = c("Baseline", "Variants", "Area")
+    fig_name = c("Baseline", "Variants")
     plot_temporal(o, fig_name, plot_by = "variant", plot_geom = "area")
     
     # Plot age groups
-    fig_name = c("Baseline", "Age groups", "Area")
+    fig_name = c("Baseline", "Age groups")
     plot_temporal(o, fig_name, plot_by = "age", plot_geom = "area")
     
     # Plot vaccine and treatment priority groups
-    fig_name = c("Baseline", "Priority groups", "Area")
+    fig_name = c("Baseline", "Priority groups")
     plot_temporal(o, fig_name, plot_by = "priority_group", plot_geom = "area")
+    
+    # Plot types of vaccine distributed
+    fig_name = c("Baseline", "Vaccine types")
+    plot_temporal(o, fig_name, plot_by = "vaccine_type", plot_geom = "area")
+    
+    # Plot types of vaccine distributed
+    fig_name = c("Baseline", "Vaccine doses")
+    plot_temporal(o, fig_name, plot_by = "vaccine_doses", plot_geom = "area")
     
     # Histogram of number of infections per person
     fig_name = c("Baseline", "Number of infections")
@@ -61,7 +69,8 @@ run_results = function(o) {
   # ---- Alternative scenarios ----
   
   # Alternative scenarios associated with this analysis
-  alt_scenarios = names(parse_yaml(o, "*read*", read_array = TRUE)[-1])
+  all_scenarios = names(parse_yaml(o, "*read*", read_array = TRUE))
+  alt_scenarios = all_scenarios[-1]  # Remove reference to baseline
   
   # Which of these are children of array scenarios
   array_parents  = get_array_parents(alt_scenarios)
@@ -75,10 +84,10 @@ run_results = function(o) {
     
     message(" - Alternative scenarios")
     
-    # Alternative scenarios
-    plot_temporal(o, "Alternative scenarios", scenarios = single_scenarios)
-    
     # Alternative scenarios - all metrics
+    plot_temporal(o, "Alternative scenarios", scenarios = single_scenarios) 
+    
+    # Alternative scenarios - cumulative bars
     fig_name = c("Alternative scenarios", "Impact bars")
     plot_impact(o, fig_name, scenarios = single_scenarios)
     
@@ -151,10 +160,10 @@ run_results = function(o) {
                    plot_metrics = "hospital_admissions", 
                    summarise    = "sum")
       
-      # Produce heat map of moving parts: Mean R_eff over time
-      plot_heatmap(o, fig_name  = c("Heat map", this_array, "R_eff"), 
+      # Produce heat map of moving parts: Mean Re over time
+      plot_heatmap(o, fig_name  = c("Heat map", this_array, "Re"), 
                    array        = this_array, 
-                   plot_metrics = "R_effective", 
+                   plot_metrics = "Re", 
                    summarise    = "mean")
     }
   }
@@ -171,11 +180,11 @@ run_results = function(o) {
     
     # Load scenario_assumptions file
     results = try_load(o$pth$scenarios, scenario_assumptions)
-    
+
     # Extract model input and network details
     model_input   = results$input
     model_network = results$network
-    
+
     # Network figure 1) Series of network-related properties
     fig_name = c("Network properties", scenario_assumptions)
     plot_network_properties(o, fig_name, model_input, model_network)
@@ -191,10 +200,22 @@ run_results = function(o) {
     # Plot viral load profile
     fig_name = c("Viral load profile", scenario_assumptions)
     plot_viral_load(o, fig_name, model_input)
-    
+
     # Plot immunity profiles for natural infections and vaccination
     fig_name = c("Immunity profiles", scenario_assumptions)
     plot_immunity_profiles(o, fig_name, model_input)
+
+    # Plot seasonality profile
+    #
+    # NOTE: This function is able to handle multiple scenarios
+    fig_name = c("Seasonality profile", scenario_assumptions)
+    plot_seasonality_profile(o, fig_name, model_input)
+
+    # Plot parameter uncertainty distributions (for all scenarios at once)
+    plot_uncertainty(o, "Parameter uncertainty distributions")
+    
+    # Plot simulation time taken (all scenarios)
+    plot_simulation_time(o, "Simulation time", scenarios = all_scenarios)
   }
   
   # ---- Calibration performance and diagnostics ----
@@ -209,11 +230,11 @@ run_results = function(o) {
     
     # Loop through adaptive sampling rounds
     for (round_idx in paste0("r", 0 : model_input$adaptive_sampling$rounds)) {
-
+      
       # Plot each round, as long as results exist (we may have broken out early)
       round_result = paste0(o$pth$fitting, round_idx, "_result.rds")
       if (file.exists(round_result)) {
-
+        
         # Plot calibration emulator and optimisation performance (outcomes of step 1)
         plot_best_samples(o, "Best simulated samples",   round_idx)
         plot_emulator(o,     "Emulator performance",     round_idx)
@@ -223,6 +244,17 @@ run_results = function(o) {
     
     # Plot calibration weight assumptions for metrics, time, and peaks
     plot_calibration_weights(o, "Calibration weights")
+  }
+  
+  # ---- Explore data used for model fitting ----
+  
+  # Check plotting flag
+  if (o$plot_data == TRUE) {
+    
+    message(" - Calibration data")
+    
+    # Plot incidence and corresponding Re (Re_data fitting only)
+    plot_Re_data(o, "Re data used for calibration")
   }
   
   # ---- Custom figures ----

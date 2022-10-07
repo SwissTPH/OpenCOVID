@@ -3,8 +3,7 @@
 #
 # Train a model emulator on simulated samples, with a response
 # variable of normalised error between model output and fitting
-# target (which could be a single R_eff value or temporal epi 
-# data). 
+# target (which could be a single Re value or temporal epi data). 
 #
 # Uses a Guassian Proccess model to interpolate parameter space.
 # An optimisation algorithm is then used to locate the global
@@ -20,7 +19,8 @@ train_emulator = function(o, fit, r_idx) {
   message("  > Training model emulator")
   
   # Shorthand of emulator options
-  opts = fit$input$emulator
+  opts   = fit$input$emulator
+  params = fit$params
   
   # Load samples for this and all preceeding sampling rounds
   samples_df = try_load(o$pth$fitting, "rx_samples")
@@ -37,16 +37,16 @@ train_emulator = function(o, fit, r_idx) {
   test_id = sort(sample(paramset_ids, size = n_test))
   
   # Split samples into train and test - summarise test outcomes
-  train_data = filter(samples_df, !paramset_id %in% test_id)
-  test_data  = filter(samples_df, paramset_id %in% test_id) %>%
-    group_by_at(c("paramset_id", fit$params)) %>%
+  train_data = samples_df[!paramset_id %in% test_id, ]
+  test_data  = samples_df[paramset_id %in% test_id, ] %>%
+    group_by_at(c("paramset_id", params)) %>%
     summarise(obj_value = mean(obj_value)) %>%
-    as.data.table()
+    setDT()
   
   # ---- Train model emulator ----
   
   # Seperate inputs and output in the training data
-  train_variables = as.matrix(train_data %>% select(all_of(fit$params)))
+  train_variables = as.matrix(train_data[, ..params])
   train_response  = as.matrix(train_data[, obj_value])
   
   # Prepare data for mleHetGP: find and remove duplicates
@@ -64,7 +64,7 @@ train_emulator = function(o, fit, r_idx) {
   # ---- Test performance of emulator ----
   
   # Split test independent and dependent variables
-  test_variables = as.matrix(test_data %>% select(all_of(fit$params)))
+  test_variables = as.matrix(test_data[, ..params])
   test_response  = as.vector(test_data[, obj_value])
   
   # Evaluate test set using model emulator
@@ -83,7 +83,7 @@ train_emulator = function(o, fit, r_idx) {
     data.table(actual  = as.vector(train_response), 
                predict = train_predict, 
                group   = paste0("train::r", train_data$round)) %>%
-    rbind(test_df)
+    bind_rows(test_df)
   
   # Append full performance info to emualator list
   emulator$performance = gp_performance

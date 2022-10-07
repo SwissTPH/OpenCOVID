@@ -7,7 +7,7 @@ Related manuscripts
 ======
 1. NPIs and vaccination in Switzerland: [Impact of vaccination and non-pharmaceutical interventions on SARS-CoV-2 dynamics in Switzerland](https://www.sciencedirect.com/science/article/pii/S1755436521000785)
 2. Potential public health impact of Omicron: [Assessing impact of Omicron on SARS-CoV-2 dynamics and public health burden](https://rdcu.be/cSmz0)
-3. Frequency, timing, and target groups for vaccine boosters: [COVID-19 vaccine booster strategies in light of emerging viral variants: Frequency, timing, and target groups](https://www.medrxiv.org/content/10.1101/2022.06.22.22276760v1.full)
+3. Frequency, timing, and target groups for vaccine boosters: [COVID-19 vaccine booster strategies in light of emerging viral variants: Frequency, timing, and target groups](https://link.springer.com/article/10.1007/s40121-022-00683-z)
 
 Detailed model description available available [here](https://ars.els-cdn.com/content/image/1-s2.0-S1755436521000785-mmc1.pdf).
 

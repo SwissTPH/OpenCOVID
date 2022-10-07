@@ -35,11 +35,16 @@ set_options = function(do_step = NA, quiet = FALSE) {
   
   # ---- Data references ----
   
+  # ECDC data links
+  o$ecdc_api = 
+    list(cases = "https://opendata.ecdc.europa.eu/covid19/nationalcasedeath_eueea_daily_ei/csv", 
+         hosp  = "https://opendata.ecdc.europa.eu/covid19/hospitalicuadmissionrates/csv")
+  
+  # ETH effective reproduction number estimates
+  o$eth_api = "https://raw.githubusercontent.com/covid-19-Re/dailyRe-Data/master/<country>-estimates.csv"
+  
   # API endpoint for national-level Oxford Stringency Index data
   o$osi_api = "https://covidtrackerapi.bsg.ox.ac.uk/api/v2/stringency/date-range/"
-  
-  # TEMP: Some Austrlian (Northern Territory) data to play with
-  o$covidbaseau_api = "https://covidbaseau.com/historical/Hospitalisations%20NT.csv"
   
   # ---- Calibration settings ----
   
@@ -65,8 +70,6 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # Check calibration file consistency before simulating scenarios
   o$check_fit_consistency = TRUE
   
-  
-  
   # Selection of model parameters that can be changed without the need for re-fitting
   #
   # TODO: We should be able to avoid this by setting n_days to max(fit_days) and then comparing
@@ -79,9 +82,10 @@ set_options = function(do_step = NA, quiet = FALSE) {
                              "testing", 
                              "isolation")
   
-  
-  
   # ---- Uncertainty settings ----
+  
+  # Flag for reproducible scenarios (consistent randomly sampled seeds)
+  o$scenario_reproducible = TRUE
   
   # Statistical summary to use for 'best estimate' projection
   #
@@ -90,11 +94,16 @@ set_options = function(do_step = NA, quiet = FALSE) {
   #    "mean" := Mean of uncertainty simulations (stochastic and parameter uncertainty)
   o$best_estimate_simulation = "mean"
   
-  # Number of parameters sets to sample from MCMC posteriors
-  o$n_parameter_samples = 0  # Not including best parameter set
-  
   # Number of seeds to run for each scenario (including baseline)
-  o$n_seeds_analysis = 10
+  o$n_seeds_analysis = 100
+  
+  # Number of parameters sets to sample when simulating parameter uncertainty
+  o$n_parameter_sets = 100  # Best to set to 1 if not simulating parameter uncertainty
+
+  # Flag for simulating each uncertainty parameter set n_seeds times
+  #
+  # NOTE: If false, each parameter set is simulated only once with a randomly defined seed
+  o$full_factorial_uncertainty = FALSE
   
   # Flag to impute vaules for scenarios that did not run (mean across all other seeds)
   o$impute_failed_jobs = TRUE
@@ -148,7 +157,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # ---- Plotting settings ----
   
   # Lower bound of age groups for plotting - bounded above by maximum age
-  o$plot_ages = c(0, 18, 50, 65, 75, 85)
+  o$plot_ages = c(0, 18, 60)  # Captures 3 age groups as per ECDC request
   
   # Plot a maximum number of scenarios on temporal plots
   o$max_scenarios = 25
@@ -159,8 +168,10 @@ set_options = function(do_step = NA, quiet = FALSE) {
   
   # Colour packages and palettes for groupings (see colour_scheme in myRfunctions.R)
   o$palette_age     = "brewer::set2"
-  o$palette_variant = "brewer::dark2"
-  o$palette_priority_group = "brewer::set2"
+  o$palette_variant = "brewer::set3"
+  o$palette_priority_group = "brewer::accent"
+  o$palette_vaccine_type   = "brewer::dark2"
+  o$palette_vaccine_doses  = "pals::kovesi.rainbow"
   
   # Define some nice properties for baseline metric plots
   o$baseline_name   = "Baseline scenario"
@@ -173,6 +184,9 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # Saved figure size
   o$save_width  = 14
   o$save_height = 10
+  
+  # Units of figures sizes
+  o$save_units = "in"
   
   # Units of figures sizes
   o$save_units = "in"
@@ -195,6 +209,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$plot_heatmaps    = TRUE  # Plot heat maps for multidimension arrays
   o$plot_assumptions = TRUE  # Model structure and assumptions figures
   o$plot_calibration = TRUE  # Calibration performance and diagnostics
+  o$plot_data        = FALSE  # Plot data sources (if calibrating to data)
   
   # Flags for custom figures
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)

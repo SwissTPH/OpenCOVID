@@ -164,7 +164,7 @@ facet_dims = function(g) {
 # ---------------------------------------------------------
 # A wrapper for tagger::tag_facets with a few extras
 # ---------------------------------------------------------
-facet_labels = function(g, f, ...) {
+facet_labels = function(g, ...) {
   
   # Default arguments
   args = list(tag = "panel", 
@@ -173,22 +173,6 @@ facet_labels = function(g, f, ...) {
   
   # Overwrite these if desired
   args = list_modify(args, !!!list(...))
-  
-  # Determine if ggh4x is being used
-  str_ggh4x = "facet_[\\<wrap\\>,\\<grid\\>]{4}2"
-  use_ggh4x = grepl(str_ggh4x, f$facet_custom)
-  
-  # If yes, we need to reverse direction of labels
-  if (isTRUE(use_ggh4x)) {
-    
-    warning("Facet labelling does not work well with ggh4x")
-    
-    return(g)
-    
-    # f_dims = facet_dims(g)
-
-    # tag_pool = LETTERS[1 : prod(f_dims)]
-  }
   
   # Call tag_facets function with these arguments
   g = g + do.call(tag_facets, args) 

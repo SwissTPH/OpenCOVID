@@ -16,7 +16,7 @@ if (length(args) > 0) {
   job_id   = as.numeric(args[2])
   
 } else {  # Otherwise define some defaults - used for testing and debugging
-  job_type = "fitting::r0" # fitting::r0, scenarios, summarise
+  job_type = "summarise" # fitting::r0, scenarios, summarise
   job_id   = 1
 }
 
