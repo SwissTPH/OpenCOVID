@@ -1,7 +1,7 @@
 # OpenCOVID
 This git-repository contains source-code for OpenCOVID, an individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynamics. From version 2.0 onwards, the model is setting-agnostic.
 
-Version 3.0 (released 24-07-2022)
+Version 4.0 (released 07-10-2022)
 
 Related manuscripts
 ======
