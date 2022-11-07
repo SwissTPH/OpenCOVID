@@ -26,7 +26,11 @@ source("dependencies.R")
 if (interactive()) clf()  # Close figures
 if (interactive()) clc()  # Clear console
 
+<<<<<<< HEAD
 message("Running OpenCOVID v4.1 beta")
+=======
+message("Running OpenCOVID v4.0 beta")
+>>>>>>> c51e0dccc0d51aa35c248f229f16cb23d6938ea4
 
 # Set options (see options.R)
 o = set_options(do_step = 1)
