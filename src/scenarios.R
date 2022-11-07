@@ -19,17 +19,17 @@ run_scenarios = function(o) {
   # Check calibration file is suitable
   check_fit(o)
   
+  # Create and read scenarios to simulate (see parse_input.R)
+  all_scenarios = names(parse_yaml(o, "*create*", read_array = TRUE))
+  
+  # ---- Set up full set of simulations ----
+  
   # Set a seed if we want this process to be reproducible
   if (o$scenario_reproducible)
     set.seed(1)
   
-  # ---- Set up full set of simulations ----
-  
   # Sample values from all parameter uncertianty distrubutions
   uncert_df = sample_uncertainty(o)  # See uncertainty.R
-  
-  # All scenarios to simulate (see parse_input.R)
-  all_scenarios = names(parse_yaml(o, "*read*", read_array = TRUE))
   
   # Generate set of sim IDs (depends on uncertainty options)
   sim_df = create_sim_id(o, uncert_df, all_scenarios)
@@ -247,8 +247,6 @@ check_existing = function(o, sim_df) {
       
       # Assess each scenario that already exists
       for (scenario_exist in unique(sims_exist$scenario)) {
-        
-        browser()
         
         # Only need to look at one simulation - load it and extract input list
         check_sim   = filter(sims_exist, scenario == scenario_exist)[1, ]

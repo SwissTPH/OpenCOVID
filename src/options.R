@@ -46,6 +46,17 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # API endpoint for national-level Oxford Stringency Index data
   o$osi_api = "https://covidtrackerapi.bsg.ox.ac.uk/api/v2/stringency/date-range/"
   
+  # Data dictionary: ECDC hospital & ICU indicators
+  o$data_dict$ecdc = c(hospital_beds = "Daily hospital occupancy", 
+                       icu_beds      = "Daily ICU occupancy",
+                       hospital_admissions = "Weekly new hospital admissions per 100k", 
+                       icu_admissions      = "Weekly new ICU admissions per 100k")
+  
+  # Use R or python backend for parsing yaml files
+  #
+  # NOTE: Python package can handle anchors and aliases
+  o$read_yaml_engine = "python" # OPTIONS: "R" or "python"
+  
   # ---- Calibration settings ----
   
   # Whether fitting should be reproducible
@@ -95,10 +106,10 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$best_estimate_simulation = "mean"
   
   # Number of seeds to run for each scenario (including baseline)
-  o$n_seeds_analysis = 100
+  o$n_seeds_analysis = 10
   
   # Number of parameters sets to sample when simulating parameter uncertainty
-  o$n_parameter_sets = 100  # Best to set to 1 if not simulating parameter uncertainty
+  o$n_parameter_sets = 10  # Best to set to 1 if not simulating parameter uncertainty
 
   # Flag for simulating each uncertainty parameter set n_seeds times
   #
@@ -120,7 +131,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$overwrite_simulations = TRUE
   
   # Check YAML file consistency for any existing simulations before skipping
-  o$check_yaml_consistency = TRUE
+  o$check_yaml_consistency = FALSE  # Should be more efficient to be a default check
   
   # Choose cluster partition for parallel jobs
   o$cluster_partition = "scicore" # OPTIONS: "covid19" or "scicore"
@@ -205,14 +216,15 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$plot_baseline    = TRUE  # Standard baseline figures
   o$plot_cumulative  = TRUE  # Plot cumulative outcomes
   o$plot_scenarios   = TRUE  # Plot alternative (non-array) scenarios
-  o$plot_arrays      = TRUE  # Plot array scenario bundles
-  o$plot_heatmaps    = TRUE  # Plot heat maps for multidimension arrays
+  o$plot_arrays      = TRUE  # Plot grid array scenario bundles
+  o$plot_heatmaps    = TRUE  # Plot heat maps for multidimension grid arrays
+  o$plot_endpoints   = TRUE  # Plot array LHC endpoints across different parameters
   o$plot_assumptions = TRUE  # Model structure and assumptions figures
   o$plot_calibration = TRUE  # Calibration performance and diagnostics
-  o$plot_data        = FALSE  # Plot data sources (if calibrating to data)
   
   # Flags for custom figures
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)
+  o$plot_manuscript  = TRUE  # Run manuscript.R (if it exists)
   
   # ---- Override options ----
   

@@ -1,29 +1,7 @@
 ---
 
-# A simple example of an input file to run an OpenCOVID demo
-
-# ---- Calibration options ----  
-
-# Type of calibration to perform
-calibration_type: "Re_data"
-
-# Report incidence in order to calculate Re
-model_metrics:
-  confirmed:
-    report: yes
-
-# Additional options for r_data and epi_data calibration
-calibration_options: 
-  data_synthetic: no
-  data_source:
-    epi: "ECDC"  # OPTIONS: 'ECDC'
-    Re: "ETH"  # OPTIONS: 'ECDC' or 'ETH'
-  data_end: 2022-06-01
-  data_days: 90  # For epi_data only (r_eff_window used for r_data)
-  data_burn_in: 30  # Number of days to simulate before data kicks in (for epi_data only)
-
-# Weights for epi_data calibration only (set metrics to 0 to turn off)
-
+# Example analysis file to run a demo OpenCOVID analysis
+  
 # ---- Baseline settings ----
         
 # Run all simulations for 500 days into the future
@@ -120,27 +98,6 @@ vaccine_update:
 - id: next_gen_vax
   name: "2nd generation vaccine"
   release_day: no  # Set to integer to use
-
-# Pre-exposure prophylaxis coverage scale up
-prep_rollout: 
-  coverage: 0.98
-  start: 5
-  end: 15
-
-# Probability of treatment given diagnosis
-treatment:
-- id: high_risk
-  vaccine_condition: "unvaccinated"
-  available: 20
-  prob_mild: 0.1  # Probability of treatment IF diagnosed
-  prob_severe: 0.8
-  prob_crit: 0.8
-- id: low_risk
-  vaccine_condition: "unvaccinated"
-  available: 50
-  prob_mild: 0.0
-  prob_severe: 0.2
-  prob_crit: 0.8
   
 # ---- Alternative scenarios ----
 
@@ -178,7 +135,7 @@ scenarios:
     name: "Delta+ (AY.4.2)"
     import_number: 20
     infectivity:
-      array:
+      array_grid:
         id: inf
         name: "infectivity"
         from: 1.0

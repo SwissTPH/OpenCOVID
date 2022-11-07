@@ -26,21 +26,24 @@ source("dependencies.R")
 if (interactive()) clf()  # Close figures
 if (interactive()) clc()  # Clear console
 
-message("Running OpenCOVID v4.0 alpha")
+message("Running OpenCOVID v4.1 beta")
 
 # Set options (see options.R)
-o = set_options(do_step = 3)
+o = set_options(do_step = 1)
 
 # Step 0) Test run a single simulation
 run_model_test(o)  # See unit_tests.R
 
-# Step 1) Fit effective reproduction number
+# Step 1) Calibrate model
 run_calibration(o)  # See calibration.R
 
 # Step 2) Run all scenarios
 run_scenarios(o)  # See scenarios.R
 
-# Step 3) Plot results
+# Step 3) Operate on array scenarios
+run_arrays(o)  # See array.R
+
+# Step 4) Plot results
 run_results(o)  # See results.R
 
 # Finish up

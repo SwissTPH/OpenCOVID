@@ -26,7 +26,7 @@ run_calibration = function(o) {
   fit = setup_calibration(o)
   
   # Load data - see load_data.R
-  list[fit, ] = load_data(o, fit, fit$synthetic)
+  fit = load_data(o, fit, fit$synthetic)
   
   # ---- Main adaptive sampling loop ----
   
@@ -127,8 +127,8 @@ setup_calibration = function(o) {
   
   # ---- Construct list for fitting details ----
   
-  # Initiate fit list
-  fit = c(do, list(input = p))
+  # Initiate fit list (with easy access to calibration options)
+  fit = c(do, list(input = p, opts = opts))
   
   # Extract parameters to calibrate
   fit_df = list2dt(fit$input$calibration_parameters) %>%
@@ -153,8 +153,6 @@ setup_calibration = function(o) {
     # Add column if this doesn't already exist
     if (!"synth" %in% names(fit_df))
       fit_df$synth = NA
-    
-    browser()
     
     # Ensure value is within bounds, use mean if doesn't exist, and convert to list
     fit$synthetic = fit_df %>%
@@ -260,7 +258,7 @@ sample_parameters = function(o, fit, r_val) {
     
     # Evalute the points, calculate expected improvement, and take the most likely
     samples = eval_samples %>%
-      transform_params(fit) %>% 
+      normalise_params(fit$params, fit$bounds) %>% 
       as.matrix() %>% 
       crit_EI(emulator) %>% 
       as_named_dt("expected_improvement") %>% 
@@ -369,17 +367,39 @@ quality_of_fit = function(o, fit, r_idx, do_plot = FALSE) {
   paramset_df = try_load(o$pth$fitting, paste0(r_idx, "_paramsets"))
   output_df   = try_load(o$pth$fitting, paste0(r_idx, "_output"))
   
-  # Calibration metrics may need to be scaled
+  # Model output may need to be scaled to get to per 100k people
   scaler   = 1e5 / fit$input$population_size
   scale_df = fit$input$metrics$df %>% 
     select(metric, scale) %>%
     mutate(scaler = ifelse(scale, scaler, 1))
   
-  # Apply scaler where appropriate
-  output_df = output_df %>%
+  # Apply scaler to model output and remove burn in phase
+  output_df %<>%
     left_join(scale_df, by = "metric") %>%
     mutate(value = value * scaler) %>%
-    select(-scale, -scaler)
+    select(-scale, -scaler) %>%
+    filter(date > fit$opts$data_burn_in) 
+  
+  # Change daily data to different time period if necessary
+  if (fit$opts$data_period != "day") {
+    
+    # Formatting the dates
+    all_dates = seq(fit$opts$data_start, fit$opts$data_end, by = "day")
+    dates_df  = data.table(date = all_dates, 
+                           day  = 1 : length(all_dates)) %>%
+      filter(day > fit$opts$data_burn_in)
+    
+    # Transform the data
+    output_df %<>%
+      mutate(date = as_date(date, origin = fit$opts$data_start), 
+             date = ceiling_date(date, fit$opts$data_period)) %>%
+      group_by(param_id, round, seed, metric, date) %>%
+      summarise_at("value", sum, na.rm = TRUE) %>%
+      ungroup() %>%
+      inner_join(dates_df, by = "date") %>%
+      select(param_id, round, seed, metric, date = day, value) %>%
+      setDT()
+  }
   
   # When fitting to Re
   if (fit$.use_Re) {
@@ -388,6 +408,7 @@ quality_of_fit = function(o, fit, r_idx, do_plot = FALSE) {
     obj_value_df = output_df %>%
       group_by(param_id, round, seed) %>%
       summarise(value = mean(value)) %>%
+      ungroup() %>%
       mutate(obj_value = (fit$target - value) ^ 2, 
              obj_value = log(1 + obj_value * 100) + 1) %>%
       select(-value) %>%
@@ -397,16 +418,32 @@ quality_of_fit = function(o, fit, r_idx, do_plot = FALSE) {
   # When fitting to epi data
   if (!fit$.use_Re) {
     
-    # Format metric, time, and peak weights
-    weight_df = format_weights(fit$input, fit$data)
+    # Cumulatively sum data and append weights
+    data_df = fit$data %>%
+      group_by(metric) %>%
+      mutate(value = cumsum(value)) %>%
+      ungroup() %>%
+      format_weights(fit$input) %>%
+      setDT()
+
+    # Also cumulatively sum model output
+    model_df = output_df %>%
+      group_by(param_id, round, seed, metric) %>%
+      mutate(value = cumsum(value)) %>%
+      ungroup() %>%
+      setDT()
     
     # Sum the log weighted squared difference between model and data (all metrics, all time points)
-    obj_value_df = output_df %>%
-      inner_join(weight_df, by = c("metric", "date")) %>%
-      mutate(# target = target / fit$pop_scaler,  # Scale down data to per 100k people
-             err    = weight * (target - value) ^ 2) %>%
+    obj_value_df = model_df %>%
+      inner_join(data_df, by = c("metric", "date")) %>%
+      group_by(metric) %>%
+      mutate(value  = value  / max(target), 
+             target = target / max(target)) %>%
+      ungroup() %>%
+      mutate(err = weight * (target - value) ^ 2) %>%
       group_by(param_id, round, seed) %>%
-      summarise(obj_value = log(sum(err))) %>%
+      summarise(obj_value = log(sum(err) + 1)) %>% 
+      ungroup() %>%
       setDT()
   }
   
@@ -455,10 +492,10 @@ select_samples = function(o, r_val) {
 # ---------------------------------------------------------
 # Extract and select calibration weightings for metrics, time, and peaks
 # ---------------------------------------------------------
-format_weights = function(p, data, all = FALSE) {
+format_weights = function(data, model_input, all = FALSE) {
   
   # Shorthand for calibration weights list
-  w = p$calibration_weights
+  w = model_input$calibration_weights
   
   # Weights for each metric
   w_metric = as.data.table(w$metric) %>% 
@@ -468,14 +505,15 @@ format_weights = function(p, data, all = FALSE) {
   
   # All possible time and peak weights
   weight_all_df = data %>%
-    filter(type == "fit", 
-           !is.na(value)) %>%
+    filter(!is.na(value)) %>%
     select(date, metric, target = value) %>%
     group_by(metric) %>%
     # Punish errors at more recent dates...
     mutate(w_time_none   = 1, 
            w_time_weak   = seq(from = 0.5, to = 1, length.out = n()), 
-           w_time_strong = seq(from = 0,   to = 1, length.out = n())) %>%
+           w_time_strong = seq(from = 0,   to = 1, length.out = n()), 
+           w_time_exponential = rev(dexp((1 : n()) / n(), rate = 5)) / 
+                                      max(dexp((1 : n()) / n(), rate = 5))) %>%
     # Punish errors at peaks...
     mutate(w_peak_none   = 1,
            w_peak_weak   = (target / max(target, na.rm = TRUE)) ^ 0.5, 
@@ -489,7 +527,7 @@ format_weights = function(p, data, all = FALSE) {
   if (all == TRUE)
     return(weight_all_df)
   
-  # Select the types of weights we want, discard the rest, and multiply for overal weight
+  # Select the types of weights we want, discard the rest, and multiply for overall weight
   weight_df = weight_all_df %>%
     select(date, metric, target, w_metric, 
            w_time = !!paste0("w_time_", w$time),

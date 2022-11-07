@@ -234,22 +234,23 @@ prep_rollout:
 # ---- Treatment details ----
 
 # Probability of treatment given diagnosis
-treatment:
+treat_rollout:
 - id: high_priority
   # product: "product1"
   vaccine_condition: "none"  # OPTIONS: "vaccinated", "unvaccinated", "none"
-  available: 0      # Date index of when treatment becomes available for this group
-  prob_mild: 0.0    # Probability of treatment if currently mild symptoms
-  prob_severe: 0.0  # Probability of treatment if currently severe symptoms
-  prob_crit: 0.0    # Probability of treatment if currently critical symptoms
-  
+  mild: yes      # Flag for treating those with mild symptoms
+  severe: yes    # Flag for treating those with severe symptoms (in hospital)
+  crit: yes      # Flag for treating those in critical condition (in ICU)
+  coverage: 0.0  # Coverage of all those eligible (defined by mild, severe, crit flags)
+  available: 0   # Date index of when treatment becomes available for this group
 - id: low_priority
   # product: "product2"
   vaccine_condition: "none"
+  mild: yes
+  severe: yes
+  crit: yes
+  coverage: 0.0
   available: 0
-  prob_mild: 0.0
-  prob_severe: 0.0
-  prob_crit: 0.0
   
 # Delay from diagnosis to treatment effect
 treat_delay: 5
@@ -338,6 +339,13 @@ death_critical_age:
   mid: 90
   lower: 0
   upper: 2
+  
+# Scale factors for death when critical in/out of ICU
+death_critical_icu: 1.0
+death_critical_non_icu: 3.0
+
+# Probability of seeking care if severe
+seek_hospital: 0.75
 
 # Per exposure risk scaler for ICU and death (assumed to not wane over time)
 #
@@ -346,7 +354,7 @@ death_critical_age:
 #  2) www.thelancet.com/journals/lancet/article/PIIS0140-6736(22)00089-7/fulltext
 # Also see dose_response relationship parameters
 exposure_response:
-  icu_risk_factor: 0.4	# Calculated from (1)
+  icu_risk_factor: 0.4  # Calculated from (1)
   death_risk_factor: 0.65  # Calculated from (1)
   
 # Maximum number of infections to count per person
@@ -693,18 +701,22 @@ calibration_options:
   data_end: 2022-08-01
   data_days: 90  # For epi_data only (Re_window used for Re_data)
   data_burn_in: 30  # Number of days to simulate before data kicks in (for epi_data only)
+  offset_synthetic: 0.05  # Standard deviation for offseting synthetically generated data
+  
+# Time period to calibrate to (epi_data only)
+calibration_time_period: "month" # OPTIONS: "day", "week", "month", "quater", "year" 
 
 # Weights for epi_data calibration only (set metrics to 0 to turn off)
 calibration_weights:
-  time: "none"  # OPTIONS: 'none', 'weak', or 'strong'
-  peak: "none"  # OPTIONS: 'none', 'weak', or 'strong'
+  time: "none"  # OPTIONS: 'none', 'weak', 'strong', 'exponential'
+  peak: "none"  # OPTIONS: 'none', 'weak', 'strong'
   metric:
     confirmed: 1.0
     deaths: 1.0
-    hospital_beds: 1.0
-    hospital_admissions: 0.0
-    icu_beds: 1.0
-    icu_admissions: 0.0
+    hospital_admissions: 1.0
+    icu_admissions: 1.0
+    hospital_beds: 0.0
+    icu_beds: 0.0
 
 # Strength of objective function scaling
 objective_scaling: "none"  # OPTIONS: 'none', 'weak', or 'strong'
@@ -737,6 +749,15 @@ Re_fit:
   n_days: 5      # Take the average over the next n days
   
 # ---- Scenarios ----
+
+# Number of LHC scenario samples to run (if applicable)
+scenario_lhc_samples: 100
+
+# LHC scenario endpoints to fit to (if applicable)
+scenario_lhc_endpoints:
+- id: total_infections
+  metric: "all_new_infections"
+  summarise: "sum"  # OPTIONS: sum, mean, min, max
 
 # Always run a baseline scenario
 scenarios: 

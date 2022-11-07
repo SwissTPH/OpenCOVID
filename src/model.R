@@ -111,6 +111,9 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
     currently_isolated = ppl[care_state %in% "iso", id]
     m = update_output(m, p, i, "currently_isolated", ppl[currently_isolated, ])
     
+    # All infectious individuals not in isolation - these contributing to new infections
+    all_infecting = setdiff(all_infectious, currently_isolated)
+    
     # Total number of people currently infected with symptoms (mild, severe, or critical)
     currently_symptomatic = ppl[disease_state %in% c("mild", "severe", "crit"), id]
     m = update_output(m, p, i, "currently_symptomatic", ppl[currently_symptomatic, ])
@@ -128,7 +131,7 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
     m = update_output(m, p, i, "pop_prevalence", pop_prevalence)
     
     # Sero-prevalence across whole population (proportion that have been infected thus far)
-    pop_seroprevalence = 100 * nrow(ppl[num_infections > 0, ]) / p$population_size
+    pop_seroprevalence = 100 * ppl[num_infections > 0, .N] / p$population_size
     m = update_output(m, p, i, "seroprevalence", pop_seroprevalence)
     
     # Virus variant of each infected individual
@@ -141,15 +144,8 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
     
     # ---- New local infections ----
     
-    # All contacts between infectious ('from') and susceptible ('to') people 
-    #
-    # NOTES: 
-    #  1) We remove all contacts with isolated people (ie assume they are actually isolating)
-    #  2) The slicing here is a basic implementation of social distancing - remove edges at random
-    exposures = network %>%
-      slice_sample(prop = 1 - p$npi_contact_reduction[i]) %>%
-      filter(from %in% setdiff(all_infectious, currently_isolated), 
-             to   %in% all_susceptible)
+    # All infectious-susceptible contacts - considers any NPI effect
+    exposures = fn_exposures(p, network, all_infecting, all_susceptible, i)
     
     # Variant index of infectious individuals (can impact both infectiousness and susceptibility)
     variant_idx = match(ppl[exposures$from, variant], p$variants$id)
@@ -306,7 +302,7 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
     m = update_output(m, p, i, "prep_coverage_pop", prep_total, denom = ppl)
     
     # Update number of vaccine doses in intervention unit counter
-    cost_units$prep[i] = nrow(prep_today)
+    cost_units$prep[i] = prep_today[, .N]
     
     # ---- Treatment ----
     
@@ -330,7 +326,7 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
     ppl[!is.na(days_next_event), days_next_event := days_next_event - 1]
     
     # Sanity check: throw an error if days to next event has become negative
-    if (nrow(ppl[!is.na(days_next_event) & days_next_event < 0, ]) > 0)
+    if (ppl[!is.na(days_next_event) & days_next_event < 0, .N] > 0)
       stop("Model error: negative days until next event")
     
     # Update disease and care state then sample duration of next phase
@@ -392,17 +388,21 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
   results = format_output(m, p, Re_info, network, ppl, yaml, seed)
   
   # Model runtime (in seconds)
-  time_clock = toc()
+  time_clock = toc(quiet = TRUE)
   time_taken = round(time_clock$toc - time_clock$tic)
   
   # Store the time taken
   results$time_taken = seconds_to_period(time_taken)
   
+  # Display model run time if appropriate
+  if (verbose != "none")
+    message("  > Model runtime: ", results$time_taken)
+  
   return(results)
 }
 
 # ---------------------------------------------------------
-# Generate ppl array by create new individuals
+# Generate ppl datatable by creating new individuals
 # ---------------------------------------------------------
 create_ppl = function(p, n = NULL, init = TRUE, verbose = "none") {
   
@@ -730,7 +730,7 @@ update_output = function(m, p, date_idx, update_metric, to_count, denom = 1) {
     } else if (this_grouping == "none") {
       
       # ... count all values
-      metric_count = nrow(to_count) / nrow(as.data.table(denom))
+      metric_count = to_count[, .N] / as.data.table(denom)[, .N]
       m[metric == update_metric & date == date_idx & is.na(group), value := metric_count]
       
     } else {  # Otherwise we want to count each grouping
@@ -840,8 +840,8 @@ update_state = function(p, ppl, date_idx, m = NULL, cost_units = NULL) {
     
     # Store numbers entering hospital/ICU if required
     if (!is.null(cost_units)) {
-      cost_units$hospital[date_idx] = nrow(update_df[metric == "hospital_admissions", ])
-      cost_units$icu[date_idx]      = nrow(update_df[metric == "icu_admissions", ])
+      cost_units$hospital[date_idx] = update_df[metric == "hospital_admissions", .N]
+      cost_units$icu[date_idx]      = update_df[metric == "icu_admissions", .N]
     }
     
     # Update disease and care state according to model_flows
@@ -944,6 +944,48 @@ health_economics = function(m, p, cost_units) {
 }
 
 # ---------------------------------------------------------
+# Calculate infected-susceptible exposures 
+# ---------------------------------------------------------
+fn_exposures = function(p, network, all_infecting, all_susceptible, date_idx) {
+  
+  # NPI effect on at this time step
+  npi_effect = p$npi_contact_reduction[date_idx]
+  
+  # Check that NPI is not trivial
+  if (npi_effect > 1e-6) {
+    
+    # Number of effective contacts considering any NPIs in place
+    n_contacts  = network[, .N]
+    n_effective = n_contacts * (1 - npi_effect)
+    
+    # Sample indices of effective contacts 
+    effective_idx = sample_int_crank(n    = n_contacts,
+                                     size = n_effective,
+                                     prob = rep(1, n_contacts))
+    
+    # All infected-susceptible 
+    exposures = network[effective_idx][from %in% all_infecting & to %in% all_susceptible]
+    
+  } else {  # No sampling needed if there is no NPI effect
+    exposures = network[from %in% all_infecting & to %in% all_susceptible]
+  }
+  
+  # Alternative approach with dplyr... (moved to data.table to attempt speed up)
+  
+  # All contacts between infectious ('from') and susceptible ('to') people 
+  #
+  # NOTES: 
+  #  1) We remove all contacts with isolated people (ie assume they are actually isolating)
+  #  2) The slicing here is a basic implementation of social distancing - remove edges at random
+  # exposures = network %>%
+  #   slice_sample(prop = 1 - p$npi_contact_reduction[i]) %>%
+  #   filter(from %in% all_infecting, 
+  #          to   %in% all_susceptible)
+  
+  return(exposures)
+}
+
+# ---------------------------------------------------------
 # Initiate new infections for newly infected individuals
 # ---------------------------------------------------------
 fn_begin_infection = function(p, ppl, id, apply_variant) {
@@ -1039,13 +1081,14 @@ fn_test_diagnose = function(p, ppl, date_idx) {
   # All people who could potentially get tested today
   #
   # NOTE: Occasionally people recover before getting tested, hence days_infectious check
-  test_potential = ppl[test_date == date_idx & !is.na(days_infectious), ]
+  test_potential   = ppl[test_date == date_idx & !is.na(days_infectious), ]
+  n_test_potential = test_potential[, .N]
   
   # Skip this process if no potential testers identified
-  if (nrow(test_potential) > 0) {
+  if (n_test_potential > 0) {
     
     # Preallocate vector for probability of test AND diagnosis
-    dx_probability = rep(1, nrow(test_potential))
+    dx_probability = rep(1, n_test_potential)
     
     # Indices of all those who will have mild or no symptoms
     asym_idx = test_potential$prognosis_state == "asym"
@@ -1062,7 +1105,7 @@ fn_test_diagnose = function(p, ppl, date_idx) {
     dx_probability[mild_idx] = mild_age_prob[test_potential[mild_idx, age] + 1]
     
     # Generate random number vector
-    random_number = runif(nrow(test_potential))
+    random_number = runif(n_test_potential)
     
     # ID of all those to be tested AND diagnosed
     dx_id = test_potential[which(random_number < dx_probability), id]
@@ -1158,7 +1201,7 @@ fn_vaccinate = function(p, ppl, date_idx, n_priority_group) {
       n_desired = round(p$vaccine$coverage[date_idx, group] * n_group)
       
       # Number of people currently vaccinated in this group
-      n_current = nrow(ppl[priority_group == group & !is.na(days_vaccinated), ])
+      n_current = ppl[priority_group == group & !is.na(days_vaccinated), .N]
       
       # How many we will vacinate this time step - bounded above by number available
       n_vaccinate = min(max(n_desired - n_current, 0), nrow(eligible))
@@ -1281,7 +1324,7 @@ fn_vaccine_count = function(m, p, ppl, date_idx, cost_units) {
   m = update_output(m, p, date_idx, "booster_coverage_12m_pop", booster_12m, denom = ppl)
   
   # Update number of vaccine doses in intervention unit counter
-  cost_units$vaccine[date_idx] = nrow(all_doses)
+  cost_units$vaccine[date_idx] = all_doses[, .N]
   
   return(list(m, cost_units))
 }
@@ -1296,13 +1339,13 @@ fn_prep = function(p, ppl, date_idx) {
   prep_no  = ppl[vax_unsuitable == TRUE & is.na(days_prep), ]
   
   # Total number of people eligible
-  n_total = nrow(prep_yes) + nrow(prep_no)
+  n_total = prep_yes[, .N] + prep_no[, .N]
   
   # Number of people we want to have recieved PrEP in this time step
   n_desired = round(p$prep$coverage[date_idx] * n_total)
   
   # How many we will provide PrEP to this time step - bounded above by number available
-  n_prep = min(max(n_desired - nrow(prep_yes), 0), nrow(prep_no))
+  n_prep = min(max(n_desired - prep_yes[, .N], 0), prep_no[, .N])
   
   # Randomly select eligible people to provide PrEP to
   prep_id = sample_vec(x = prep_no[, id], size = n_prep)

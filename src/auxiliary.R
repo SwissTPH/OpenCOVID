@@ -255,19 +255,22 @@ n_slurm_jobs = function(user) {
   sq = paste("squeue -u", user)
   
   # Concatenate full commands
-  slurm_running = paste(sq, "-t running | wc -l")
-  slurm_pending = paste(sq, "-t pending | wc -l")
+  slurm_running  = paste(sq, "-t running | wc -l")
+  slurm_pending  = paste(sq, "-t pending | wc -l")
+  slurm_ondemand = paste(sq, "-q interactive | wc -l")  # Interactive jobs
+  
+  # Function to get number of jobs (minus 1 to remove header row)
+  get_jobs_fn = function(x) as.numeric(system(x, intern = TRUE)) - 1
   
   # System call to determine number of slurm processes
-  n_running = system(slurm_running, intern = TRUE)
-  n_pending = system(slurm_pending, intern = TRUE)
-  
-  # Convert to numeric and minus 1 to get number of jobs
-  n_running = as.numeric(n_running) - 1
-  n_pending = as.numeric(n_pending) - 1
+  n_running  = get_jobs_fn(slurm_running)
+  n_pending  = get_jobs_fn(slurm_pending)
+  n_ondemand = get_jobs_fn(slurm_ondemand)  # Interactive jobs
   
   # Compile into list
-  n_jobs = list(running = n_running, pending = n_pending)
+  #
+  # NOTE: ondemand jobs are considered 'running', so discount these
+  n_jobs = list(running = n_running - n_ondemand, pending = n_pending)
   
   return(n_jobs)
 }

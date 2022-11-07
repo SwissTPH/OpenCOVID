@@ -80,7 +80,7 @@ create_network = function(p, ppl, do_plot, verbose) {
   mean_contacts = nrow(elist) / p$population_size
   if (abs(mean_contacts - p$contacts) > 0.1)
     stop("Requested an average of ", p$contacts, " contacts but generated ", round(mean_contacts, 3))
-  
+
   # Calculate age correction factor
   # network = age_correction_factor(p, ppl, elist)
   

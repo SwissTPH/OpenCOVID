@@ -128,22 +128,24 @@ plot_temporal = function(o, fig_name, ...) {
   # ---- Plot data ----
   
   # Load fitting details - epi data / Re target contained within
-  fit = load_calibration(o, throw_error = FALSE)
+  fit = load_calibration(o, throw_error = TRUE)
   
   # Check whether fitting has used any epi data
-  if (f$fit_target && !is.null(fit) && is.data.table(fit$data)) {
+  if (f$fit_target && is.data.table(fit$data)) {
     
-    # It only makes sense to plot this for non-cumulative line plots - I think
-    #
-    # TODO: May not be the case if we have disaggregated data
-    if (f$plot_geom == "line" && f$cumulative == FALSE && f$n_scenarios == 1) {
+    # We now calibrate to epi data in a cumulative manner
+    if (f$plot_geom == "line" && f$cumulative == TRUE && f$n_scenarios == 1) {
       
       # Apply population scaler and melt into long form
       fit_data = fit$data %>%
-        filter(type == "plot", !is.na(value), 
+        filter(!is.na(value), 
                metric %in% names(f$metric_names)) %>%
+        group_by(metric) %>%
+        mutate(value = cumsum(value)) %>%
+        ungroup() %>%
         mutate(metric = recode(metric, !!!f$metric_names), 
-               group  = as.character(NA))
+               group  = as.character(NA)) %>%
+        setDT()
       
       # Join with plotting dataframe to ensure consistency
       fit_df = plot_df %>%
@@ -170,9 +172,9 @@ plot_temporal = function(o, fig_name, ...) {
                        colour  = "black")
     
     # Check whether we also plot 'target' Re (irrelevant if calibrating to epi data)
-    if (f$fit_target && !is.null(fit) && !is.na(fit$target)) {
+    if (f$fit_target && !is.na(fit$target)) {
       
-      # Also the Re we've calibrated to (if relevant)
+      # Also the Re we've calibrated to (if relevant and desired)
       g = g + geom_hline(data     = plot_df[metric == Re_name, ], 
                          mapping  = aes(yintercept = fit$target), 
                          linetype = "dashed", 
@@ -376,6 +378,7 @@ plot_impact = function(o, fig_name, ...) {
     summarise(value = summarise_fn(value), 
               lower = summarise_fn(lower), 
               upper = summarise_fn(upper)) %>%
+    ungroup() %>%
     setDT()
   
   # Check flag for plotting difference relative to baseline
@@ -390,6 +393,7 @@ plot_impact = function(o, fig_name, ...) {
       mutate(value = value - value[scenario == baseline_name], 
              lower = lower - lower[scenario == baseline_name], 
              upper = upper - upper[scenario == baseline_name]) %>%
+      ungroup() %>%
       filter(scenario != baseline_name) %>%
       setDT()
   }
@@ -589,6 +593,8 @@ plot_impact = function(o, fig_name, ...) {
 # ---------------------------------------------------------
 plot_heatmap = function(o, fig_name, ...) {
   
+  # TODO: Do we need to restrict this type of plot to grid only? Or can LHC also be used here?
+  
   # Collate key word arguments and override geom
   args = list_modify(list(...), plot_geom = "tile", override_colours = NA)
   
@@ -621,7 +627,7 @@ plot_heatmap = function(o, fig_name, ...) {
       stop("Argument 'array' must be provided to plot_heatmap (unless plot_df is supplied)")
     
     # Load details of this array scenario
-    array_info = try_load(o$pth$arrays, f$array)
+    array_info = try_load(o$pth$array_info, f$array)
     
     # Values of each dimension simulated
     array_df = array_info$values %>% rename(primary = scenario)
@@ -668,8 +674,8 @@ plot_heatmap = function(o, fig_name, ...) {
         dif_analysis = o$analysis_name
       
       # Paths to dif array info and scenario files
-      dif_info_pth = pth_replace(o$pth$arrays,    o$analysis_name, dif_analysis)
-      dif_scen_pth = pth_replace(o$pth$scenarios, o$analysis_name, dif_analysis)
+      dif_info_pth = pth_replace(o$pth$array_info, o$analysis_name, dif_analysis)
+      dif_scen_pth = pth_replace(o$pth$scenarios,  o$analysis_name, dif_analysis)
       
       # Load dif array info
       dif_array_info = try_load(dif_info_pth, dif_name)
@@ -756,7 +762,9 @@ plot_heatmap = function(o, fig_name, ...) {
     # Summarise results over time (summary function as defined by 'summarise')
     result_df = rbindlist(result_list) %>%
       group_by(array_type, scenario, group) %>%
-      summarise(value = get(f$summarise)(value))
+      summarise(value = get(f$summarise)(value)) %>%
+      ungroup() %>%
+      setDT()
     
     # If plotting by some grouping, we need to select just one
     if (f$plot_type == "group") {
@@ -1017,7 +1025,7 @@ plot_heatmap = function(o, fig_name, ...) {
     str_replace_all(" ", "_")
   
   # Save this to file as standard
-  saveRDS(plot_info, paste0(o$pth$figures, plot_file, ".rds"))
+  saveRDS(plot_info, paste0(o$pth$results, plot_file, ".rds"))
   
   # Finally, save this figure to file
   if (!is.null(fig_name))
@@ -1347,6 +1355,7 @@ plot_optimisation = function(o, fig_name, round_idx) {
     group_by(param) %>%
     summarise(lower = min(value), 
               upper = max(value)) %>%
+    ungroup() %>%
     left_join(best_emulated, by = "param") %>%
     setDT()
   
@@ -1444,23 +1453,39 @@ plot_best_samples = function(o, fig_name, round_idx) {
     mutate(paramset_id = get_paramset_id(param_id)) %>%
     group_by(paramset_id) %>%
     summarise(obj_value = mean(obj_value)) %>%
+    ungroup() %>%
     setDT()
   
-  # Calibration metrics may need to be scaled
+  # Scale model output to per 100k people
   scaler   = 1e5 / fit$input$population_size
   scale_df = fit$input$metrics$df %>% 
     select(metric, scale) %>%
     mutate(scaler = ifelse(scale, scaler, 1))
   
-  # Apply scaler where appropriate
-  output_df = output_df %>%
+  # Apply scaler, remove burn in phase, and cumulatively sum
+  model_df = output_df %>%
     left_join(scale_df, by = "metric") %>%
     mutate(value = value * scaler) %>%
-    select(-scale, -scaler)
+    select(-scale, -scaler) %>%
+    filter(date > fit$input$calibration_options$data_burn_in) %>%
+    group_by(param_id, round, seed, metric) %>%
+    mutate(value = cumsum(value)) %>%
+    ungroup() %>%
+    setDT()
   
-  # Scale down data to per 100k people and melt into long form
-  fit_df   = data.table(param = fit$params, fit$bounds)
-  fit_data = fit$data[type == "plot" & !is.na(value), ]
+  # Also cumulatively sum data
+  data_df = fit$data %>%
+    filter(!is.na(value), 
+           metric %in% unique(model_df$metric)) %>%
+    group_by(metric) %>%
+    mutate(value = cumsum(value)) %>%
+    ungroup() %>%
+    # select(-date) %>%
+    # rename(date = day) %>%
+    setDT()
+  
+  # Extract parameter bounds
+  param_df = data.table(param = fit$params, fit$bounds)
   
   # ---- Create plot for each set of samples ----
   
@@ -1482,7 +1507,7 @@ plot_best_samples = function(o, fig_name, round_idx) {
       pull(paramset_id)
     
     # Plot dataframe 1: Model output plotted against data
-    plot1_df = output_df %>%
+    plot1_df = model_df %>%
       mutate(paramset_id = get_paramset_id(param_id)) %>%
       filter(paramset_id %in% plot_id) %>%
       left_join(samples_df, by = c("param_id", "round", "seed")) %>%
@@ -1500,9 +1525,9 @@ plot_best_samples = function(o, fig_name, round_idx) {
     
     # Plot 1: Model output plotted against data, colour signifies quality of fit
     g1 = ggplot(plot1_df, aes(x = date, y = value)) + 
-      geom_line(aes(group = param_id, colour = obj_value), 
+      geom_line(aes(group = param_id, colour = obj_value),
                 show.legend = FALSE, alpha = 0.6) +
-      geom_point(data = fit_data, colour = "darkred") + 
+      geom_point(data = data_df, colour = "darkred") + 
       facet_wrap(~metric, nrow = 1, scales = "free_y") + 
       scale_colour_gradient(low    = "blue", 
                             high   = "grey50", 
@@ -1513,7 +1538,7 @@ plot_best_samples = function(o, fig_name, round_idx) {
     
     # Plot 2: Density plot of model parameter values
     g2 = ggplot(plot2_df) + 
-      geom_segment(data    = fit_df, 
+      geom_segment(data    = param_df, 
                    mapping = aes(x = lower, 
                                  y = 0,     
                                  xend = upper, 
@@ -1580,7 +1605,7 @@ plot_calibration_weights = function(o, fig_name) {
     return()
   
   # Extract all possible metric, time, and peak weights
-  weight_df = format_weights(fit$input, fit$data, all = TRUE)
+  weight_df = format_weights(fit$data, fit$input, all = TRUE)
   
   # Melt down ready for plotting and set 'class' of weighting
   plot_df = weight_df %>%
@@ -1596,7 +1621,7 @@ plot_calibration_weights = function(o, fig_name) {
   # Plot metric x class grid of weight options (for this setting)
   g = ggplot(plot_df, aes(x = date, y = value, colour = type)) +
     geom_line(size = 2) +
-    facet_grid(class~metric)
+    facet_grid(class~metric, scales = "free_y")
   
   # Create a colour scheme
   n_colours = length(levels(plot_df$type))
@@ -1638,106 +1663,343 @@ plot_calibration_weights = function(o, fig_name) {
 }
 
 # ---------------------------------------------------------
-# Explore emperical data used for model fitting Re
+# LHC scenario diagnostic plots
 # ---------------------------------------------------------
-plot_Re_data = function(o, fig_name) {
+plot_lhc_diagnostics = function(o, fig_name, parent) {
   
-  stop("Plotting function 'plot_Re_data' needs to be rewritten")
+  # ---- Load performance details ----
   
-  # Define descriptive names for the two metrics of interest
-  metric_names = c(confirmed = "Incidence (confirmed cases)", 
-                   Re        = "Effective reproduction number")
+  # Load model parameters, simply to check endpoints
+  input = parse_yaml(o, "baseline")$parsed
   
-  # Parse yaml
-  p = parse_yaml(o, scenario = "baseline")$parsed
+  # IDs of all valid endpoints
+  endpoints_id = list2dt(input$scenario_lhc_endpoints)$id
   
-  # If we aren't calibrtating to Re_data, return out early
-  if (p$calibration_type != "Re_data")
-    return()
+  # Initiate lists for data and perfomance datatables
+  data_list = performance_list = list()
   
-  # ---- Load data and extract Re ----
+  # Loop though endpoints
+  for (endpoint in endpoints_id) {
+    
+    # Load predictor for this endpoint for this parent
+    predictor = try_load(o$pth$endpoints, paste0(parent, ".", endpoint))
+    
+    # Store parameter sets used to train the predictor
+    data_list[[endpoint]] = predictor$data %>%
+      mutate(endpoint = !!endpoint)
+    
+    # Store perfomance details (truth vs predicted)
+    performance_list[[endpoint]] = predictor$performance %>%
+      mutate(endpoint = !!endpoint)
+  }
   
-  # Initiate fit list
-  # fit = setup_calibration(o)
+  # --- Figure 1: Input vs output relationship ----
   
-  # Otherwise initiate a list to mimic fitting list
-  fit = list(.use_Re = TRUE, .use_data = TRUE, input = p)
+  # Melt down input variables
+  data_df = rbindlist(data_list) %>%
+    select(-scenario) %>%
+    rename(outcome = value) %>%
+    pivot_longer(cols = c(-endpoint, -outcome), 
+                 names_to = "variable") %>%
+    mutate(endpoint = fct_inorder(endpoint)) %>%
+    select(variable, value, endpoint, outcome) %>%
+    setDT()
   
-  # Append the data from source of interest
-  list[fit, Re_df] = load_data(o, fit)
+  # Plot relationship between each input and actual output
+  g1 = ggplot(data_df) + 
+    aes(x = value, y = outcome, colour = variable) + 
+    geom_point() + 
+    facet_grid(endpoint~variable, scales = "free")
   
-  browser()
+  # Save figure (as long as fig_name is not trivial)
+  if (!is.null(fig_name))
+    fig_save(o, g1, fig_name, "Relationships", parent)
+  
+  # --- Figure 2: Predictor performance ----
+  
+  # Performance data is already in correct format
+  performance_df = rbindlist(performance_list)
+  
+  # Flip truth and predicted in order to create nice square plotting area
+  dummy_df = performance_df[, .(actual = predict, predict = actual, group)]
+  
+  # Plot truth vs predicted (also plot invisible in reverse for square axes)
+  g2 = ggplot(performance_df) + 
+    aes(x = actual, y = predict, colour = group) + 
+    geom_blank(data = dummy_df) +
+    geom_point() + 
+    geom_abline() +
+    facet_wrap(~endpoint)
+  
+  # Save figure (as long as fig_name is not trivial)
+  if (!is.null(fig_name))
+    fig_save(o, g2, fig_name, "Performance", parent)
+}
+
+# ---------------------------------------------------------
+# LHC scenario prediction plots
+# ---------------------------------------------------------
+plot_lhc_endpoints = function(o, fig_name, 
+                              endpoint, 
+                              parent, 
+                              vars, 
+                              dif_vars = NULL, 
+                              uncertainty = TRUE) {
+  
+  # Define a colour palette
+  colour_pal = "pals::kovesi.rainbow"
+  
+  # Number of points to evaluate across the 'free' dimension
+  n_pts = 100
+  
+  # ---- Endpoint sanity check ----
+  
+  # Load model parameters, simply to check endpoints
+  input = parse_yaml(o, "baseline")$parsed
+  
+  # All valid endpoints
+  all_endpoints = list2dt(input$scenario_lhc_endpoints)
+  
+  # Throw an error if requested endpoint is not valid
+  if (!endpoint %in% all_endpoints$id)
+    stop("LHC endpoint '", endpoint, "' not recognised ")
+  
+  # ---- Variable sanity check ----
+  
+  # Load array info for this parent
+  array_info = try_load(o$pth$array_info, parent)
+  
+  # Throw an error if not an LHC array scenario
+  if (array_info$type != "lhc")
+    stop("Array parent does not appear to be an LHC scenario")
+  
+  # Extract model parameters that have been varied
+  vars_id = array_info$vars$variable_id
+  
+  # Ensure user has defined values for all variables
+  var_missing = setdiff(vars_id, names(vars))
+  if (length(var_missing) > 0)
+    stop("Missing variables: ", paste(var_missing, collapse = ", "))
+  
+  # Ensure user has not provided any unknown variables
+  var_unknown = setdiff(names(vars), vars_id)
+  if (length(var_unknown) > 0)
+    stop("Unknown variables: ", paste(var_unknown, collapse = ", "))
+  
+  # Ensure that one and only one parameter is 'free'
+  vars_free = names(vars[vars == "free"])
+  if (length(vars_free) != 1)
+    stop("Exactly one variable should be defined as 'free'")
+  
+  # ---- Difference varaibles ----
+  
+  # If no difference input given, construct trivial list
+  if (is.null(dif_vars))
+    dif_vars = list()
+  
+  # Throw an error if difference variables not defined as a list
+  if (!is.list(dif_vars))
+    stop("Difference variables must be defined within a list")
+  
+  # We'll join by all undefined variables 
+  vars_join = setdiff(vars_id, names(dif_vars))
+  
+  # Create flag for doing difference comparison
+  do_diff = ifelse(length(dif_vars) > 0, TRUE, FALSE)
+  
+  # Any difference scenarios should take same value across undefined variables
+  if (do_diff == TRUE)
+    dif_vars = list_modify(vars, !!!dif_vars)
+  
+  # ---- Parse variable values ----
+  
+  # Define function as we may need this parsing multiple times
+  parse_vars = function(vars) {
+    
+    # Loop through variables defined in list
+    for (var in names(vars)) {
+      
+      # Extract first value
+      val = vars[[var]][1]
+      bnd = array_info$bounds[var, ]
+      
+      # Exactly one variable should be vaired between bounds
+      if (val == "free") 
+        vars[[var]] = seq(bnd[1], bnd[2], length.out = n_pts)
+      
+      # Other variables can take discrete steps
+      if (grepl("^seq::", val))
+        vars[[var]] = seq(bnd[1], bnd[2], length.out = 
+                            as.numeric(str_extract(val, "[0-9]+")))
+      
+      # Otherwise variables can be fixed at either extreme
+      if (val == "lb") vars[[var]] = bnd[1]
+      if (val == "ub") vars[[var]] = bnd[2]
+      
+      # ... or the mid point of the bounds
+      if (val == "mid")  vars[[var]] = mean(c(bnd[1], bnd[2]))
+      
+      # Otherwise any numeric value can be defined
+    }
+    
+    # Take full factorial grid of combinations
+    vars_df = setDT(cross_df(vars))
+  }
+  
+  # Parse variable strings into values
+  vars_df = parse_vars(vars)
+  
+  # Same for difference variables if appropriate
+  if (do_diff == TRUE)
+    dif_vars_df = parse_vars(dif_vars)
+  
+  # ---- Faceting variables ----
+  
+  # Variables to vary - those with length > 1 that are not 'free'
+  vars_len  = apply(vars_df, 2, function(x) length(unique(x)))
+  vars_vary = setdiff(names(vars_len)[vars_len > 1], vars_free)
+  
+  # Number of variables to vary (aside from the 'free' variable)
+  n_vary = length(vars_vary)
+  
+  # NOTE: We could theoretically vary more (up to 5) by adding variables to facet_grid
+  
+  # Throw an error if trying to vary too much
+  if (n_vary > 3)
+    stop("Plotting function can handle at most three 'seq' variables")
+  
+  # ---- Predict outcomes ----
+  
+  # Model machine learning predictor for this endpoint
+  predictor = try_load(o$pth$endpoints, paste0(parent, ".", endpoint))
+  
+  # Evaluate predictor at all variable sets
+  outcome_df = vars_df %>%
+    select(all_of(vars_id)) %>% 
+    evaluate_predictor(predictor) %>%
+    cbind(vars_df)
+  
+  # Also evaluate predictor for all difference variables sets
+  if (do_diff == TRUE) {
+    outcome_dif_df = dif_vars_df %>%
+      select(all_of(vars_id)) %>% 
+      evaluate_predictor(predictor) %>% 
+      cbind(dif_vars_df) %>% 
+      select(relative = best, any_of(vars_join))
+  }
+  
+  # Or if not comparing, construct a trivial difference datatable
+  if (do_diff == FALSE)
+    outcome_dif_df = mutate(vars_df, relative = 0)
   
   # ---- Construct plotting datatable ----
   
-  # Shorthand for calibration options
-  opts = p$calibration_options
+  # Join outcomes and difference outcomes
+  plot_df = outcome_df %>%
+    left_join(y  = outcome_dif_df, 
+              by = vars_join) %>%
+    mutate(best = best - relative, 
+           lb   = lb   - relative, 
+           ub   = ub   - relative) %>%
+    select(all_of(vars_id), y = best, lb, ub) %>%
+    rename(x = !!vars_free)
   
-  # Plot actual dates rather than date indices 
-  date_n = format_date(opts$data_end)
-  date_1 = date_n - opts$data_days - opts$data_burn_in + 1
+  # Function for constructing discrete names for seq variables
+  append_fn = function(df, a) b = paste0(a, ": ", df[[a]])
   
-  # We may or may not have incidence data to plot
-  #
-  # NOTE: This depends on data source used
-  data_cols = intersect("confirmed", names(fit$data))
+  # Create discrete steps for as many variables as necessary (up to 3)
+  if (n_vary >= 1) plot_df$z = append_fn(plot_df, vars_vary[1])
+  if (n_vary >= 2) plot_df$w = append_fn(plot_df, vars_vary[2])
+  if (n_vary >= 3) plot_df$v = append_fn(plot_df, vars_vary[3])
   
-  # Convert date index to actual date and melt to long format
-  plot_df = fit$data %>% 
-    mutate(date = seq(date_1, date_n, by = "day")) %>%
-    select(date, all_of(data_cols)) %>%
-    cbind(Re = Re_info$Re_df$value) %>%
-    pivot_longer(cols = -date, 
-                 names_to = "metric") %>%
-    mutate(metric = recode(metric, !!!metric_names)) %>%
-    arrange(metric) %>%
-    filter(!is.na(value)) %>%
-    as.data.table()
+  # Select all variables required for plotting
+  plot_df %<>% select(x, y, lb, ub, any_of(qc(z, w, v)))
   
   # ---- Produce plot ----
   
-  # Plot the two metrics over time
-  g = ggplot(plot_df, aes(x = date, y = value, colour = metric)) + 
-    geom_line(size = 2, show.legend = FALSE) +
-    facet_wrap(~metric, ncol = 1, scales = "free_y")
+  # Create basic ggplot 
+  g = ggplot(plot_df, aes(x = x, y = y))
+  
+  # No colour needed if only one variable is being varied
+  if (n_vary == 0) {
+    
+    # Plot uncertainty bounds if desired (single colour)
+    if (uncertainty == TRUE)
+      g = g + geom_ribbon(aes(ymin = lb, ymax = ub), 
+                          alpha = 0.2, colour = NA)
+    
+    # Plot best estimate line (single colour)
+    g = g + geom_line(size = 2)
+  }
+  
+  # If any variables being varied, we'll use colours...
+  if (n_vary > 0) {
+    
+    # Plot uncertainty bounds if desired (multiple colours)
+    if (uncertainty == TRUE)
+      g = g + geom_ribbon(aes(ymin = lb, ymax = ub, fill = z), 
+                          alpha = 0.2, colour = NA)
+    
+    # Plot best estimate line (multiple colours)
+    g = g + geom_line(aes(colour = z), size = 2)
+    
+    # Colour for each second value of second variable
+    colours = colour_scheme(colour_pal, n = vars_len[2])
+    g = g + scale_colour_manual(values = colours)
+  }
+  
+  # Facet wrap required if 2 variables and varied
+  if (n_vary == 2)
+    g = g + facet_wrap(~w) #, scales = "free")
+  
+  # Facet gird required if 3 variables and varied
+  if (n_vary == 3)
+    g = g + facet_grid(w~v) #, scales = "free")
+  
+  # Plot a dashed line at y = 0 if plotting difference
+  if (do_diff == TRUE)
+    g = g + geom_hline(yintercept = 0, colour = "black", linetype = "dashed")
+  
+  # ---- Plot aesthetics ----
+  
+  # Extract endpoint details 
+  endpoint_details = all_endpoints %>%
+    filter(id == endpoint) %>%
+    select(-id) %>%
+    unite("details", sep = "::") %>%
+    pull(details)
+  
+  # Construct suitable y axis label to describe endpoint
+  endpoint_name = paste0(endpoint, " (", endpoint_details, ")")
   
   # Prettify y axis
-  g = g + scale_y_continuous(limits = c(0, NA), 
-                             expand = expansion(mult = c(0, 0.05)))
+  g = g + scale_y_continuous(name   = endpoint_name, 
+                             labels = comma, 
+                             expand = expansion(mult = c(0.05, 0.05)))
   
   # Prettify x axis
-  g = g + scale_x_date(date_breaks = "1 month", 
-                       date_labels = "%b %y", 
-                       limits = c(date_1, date_n), 
-                       expand = expansion(mult = c(0, 0)))
-  
-  # Construct datatable for Re target reference line
-  hline_df = data.table(metric = metric_names["Re"], 
-                        value  = target)
-  
-  # Plot the Re target reference line
-  g = g + geom_hline(data     = hline_df,
-                     mapping  = aes(yintercept = value), 
-                     linetype = "dashed")
+  g = g + scale_x_continuous(name   = vars_free, 
+                             expand = expansion(mult = c(0, 0)))
   
   # Prettify theme
   g = g + theme_classic() + 
     theme(strip.text    = element_text(size = 20),
+          axis.title    = element_text(size = 20),
           axis.text     = element_text(size = 12),
-          axis.title    = element_blank(),
           axis.line     = element_blank(),
-          axis.ticks    = element_line(size = 0.25),
-          axis.ticks.length = unit(0.1, "lines"),
-          panel.border  = element_rect(size = 0.5, colour = "black", fill = NA),
-          panel.spacing = unit(0.5, "lines"),
-          panel.grid.major.y = element_line(colour = "grey", size = 0.25), 
-          panel.grid.minor.y = element_line(colour = "grey", size = 0.25),
-          strip.background = element_blank())
+          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
+          legend.text   = element_text(size = 14),
+          legend.title  = element_blank(),
+          legend.key    = element_blank(),
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
+          legend.box.background = element_rect())
   
-  browser()
-  
-  # Save figure to file
-  fig_save(o, g, fig_name, opts$country, opts$data_source)
+  # Save figure (as long as fig_name is not trivial)
+  if (!is.null(fig_name))
+    fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
@@ -1785,6 +2047,7 @@ plot_network_properties = function(o, fig_name, model_input, network) {
     mutate(age_group = cut(age, age_breaks, include.lowest = TRUE)) %>%
     group_by(age_group) %>%
     summarise(n = sum(n)) %>%
+    ungroup() %>%
     setDT()
   
   # ---- Fig a) Number of contacts per person ----
@@ -1939,6 +2202,7 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
   grouped_df = age_bin_df %>%
     group_by(layer, age1, age2) %>%
     summarize(count = n()) %>%
+    ungroup() %>%
     group_by(layer) %>%
     mutate(proportion = count / max(count)) %>%
     ungroup() %>%
@@ -2313,6 +2577,151 @@ plot_immunity_profiles = function(o, fig_name, model_input) {
 }
 
 # ---------------------------------------------------------
+# Plot basic severe disease probabilities by age
+# ---------------------------------------------------------
+plot_severity_age = function(o, fig_name, model_input) {
+  
+  # Set colour scheme
+  colours = "brewer::accent"
+  
+  # Dictionary for severe disease states
+  state_dict = c(severe = "Severe disease", 
+                 crit   = "Critical disease", 
+                 dead   = "Death")
+  
+  # Severity factor for primary variant with no vaccine, prep, or previous exposure
+  severity_scaler = model_input$variants$severity
+  
+  # Extract severe disease probabilities by age - group care and home
+  plot_df = model_input$prognosis$age %>%
+    filter(state %in% model_input$model_states$severe) %>%
+    mutate(value = value * severity_scaler, 
+           state = str_remove_all(state, "_.*")) %>%
+    group_by(state, age) %>%
+    summarise(value = sum(value)) %>%
+    ungroup() %>%
+    mutate(state = recode(state, !!!state_dict), 
+           state = factor(state, state_dict)) %>%
+    setDT()
+  
+  # Plot as a stacked area by age
+  g = ggplot(plot_df, aes(x = age, y = value, fill = state)) + 
+    geom_area()
+  
+  # Use pre-defined colour scheme for distribution fills
+  g = g + scale_fill_manual(values = colour_scheme(colours, n = length(state_dict)))
+  
+  # Prettify axes
+  g = g + labs(fill = "Disease state") + 
+    scale_x_continuous(name   = "Age (in years)", 
+                       expand = expansion(mult = c(0, 0))) + 
+    scale_y_continuous(name   = "Disease prognosis probability", 
+                       expand = expansion(mult = c(0, 0.05)), 
+                       labels = percent)
+  
+  # Prettify theme
+  g = g + theme_classic() + 
+    theme(strip.text    = element_text(size = 20),
+          axis.title.x  = element_text(size = 24, margin = margin(t = 20, b = 10)),
+          axis.title.y  = element_text(size = 24, margin = margin(l = 10, r = 20)),
+          axis.text     = element_text(size = 12),
+          axis.line     = element_blank(),
+          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
+          legend.text   = element_text(size = 14),
+          legend.title  = element_text(size = 16),
+          legend.key    = element_blank(),
+          legend.position = "bottom", 
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
+          legend.box.background = element_rect())
+  
+  # Save figure (as long as fig_name is not trivial)
+  if (!is.null(fig_name))
+    fig_save(o, g, fig_name)
+  
+  return(g)
+  
+}
+
+# ---------------------------------------------------------
+# Plot exposure & dose response effects on disease severity
+# ---------------------------------------------------------
+plot_severity_factors = function(o, fig_name, model_input) {
+  
+  # Dictionary for severe disease states
+  state_dict = c(severe = "Severe disease", 
+                 crit   = "Critical disease", 
+                 dead   = "Death")
+  
+  # Extract prognosis severity multiplicative factors
+  plot_df = model_input$prognosis$severity %>%
+    mutate(state = str_remove_all(state, "_.*")) %>%
+    group_by(variant, vaccine_doses, num_infections, state) %>%
+    summarise(value = mean(value)) %>%
+    ungroup() %>%
+    mutate(state   = factor(state,   names(state_dict)),
+           variant = factor(variant, model_input$variants$id)) %>%
+    setDT()
+  
+  # Plot severity in a dose x exposure grid
+  g = ggplot(plot_df) +
+    aes(x = num_infections,
+        y = vaccine_doses,
+        colour = value,
+        size   = value) +
+    geom_point()
+  
+  # Use user-defined IDs and names for viral variants
+  variant_dict = setNames(model_input$variants$name, 
+                          model_input$variants$id)
+  
+  # We're apply the predefined dictionaries to facet strips
+  strip_labels = labeller(.cols = as_labeller(state_dict), 
+                          .rows = as_labeller(variant_dict))
+  
+  # Fact by disease state and variants modelled
+  g = g + facet_grid(variant~state, labeller = strip_labels)
+  
+  # Set a greyscale colour scheme
+  g = g + scale_colour_gradient(high  = "black", 
+                                low   = "darkgrey", 
+                                guide = "none")
+  
+  # Prettify axes
+  g = g + labs(size = "Prognosis multiplicative factor") + 
+    scale_x_continuous(name   = "Number of infections experienced", 
+                       breaks = 0 : model_input$max_infection_count) + 
+    scale_y_continuous(name   = "Number of vaccine doses received", 
+                       breaks = 0 : model_input$max_dose_count)
+  
+  # Prettify theme
+  g = g + theme_classic() + 
+    theme(strip.text    = element_text(size = 20),
+          axis.title.x  = element_text(size = 24, margin = margin(t = 20, b = 10)),
+          axis.title.y  = element_text(size = 24, margin = margin(l = 10, r = 20)),
+          axis.text     = element_text(size = 12),
+          axis.line     = element_blank(),
+          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
+          legend.text   = element_text(size = 14),
+          legend.title  = element_text(size = 16),
+          legend.key    = element_blank(),
+          legend.position = "bottom", 
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
+          legend.box.background = element_rect())
+  
+  # Save figure (as long as fig_name is not trivial)
+  if (!is.null(fig_name))
+    fig_save(o, g, fig_name)
+  
+  return(g)
+}
+
+# ---------------------------------------------------------
 # Plot seasonality profile best fit and bounds
 # ---------------------------------------------------------
 plot_seasonality_profile = function(o, fig_name, ..., labels = NULL, colours = NULL) {
@@ -2379,6 +2788,7 @@ plot_seasonality_profile = function(o, fig_name, ..., labels = NULL, colours = N
   threshold_df = plot_df %>%
     group_by(id, name, metric) %>%
     mutate(value = min(value)) %>%
+    ungroup() %>%
     setDT()
   
   # Text to accompany minimum lines
@@ -3099,7 +3509,7 @@ fig_defaults = function() {
     summarise     = "sum",       # Summarise data function for bar and tile plots
     plot_baseline = TRUE,        # Flag for plotting a baseline
     alt_baseline  = NULL,        # Define some alternative 'baseline'
-    fit_target    = TRUE,        # Plot what we've fitted to (either Re or epi data)
+    fit_target    = FALSE,       # Plot what we've fitted to (either Re or epi data)
     scenarios     = NULL,        # Alternative scenario names (a vector or matrix)
     relative      = FALSE,       # Outcomes plotted relative to baseline
     aes_reverse   = FALSE,       # Reverse default grouped scenarios aesthetics (colour-linetype) 
@@ -3176,7 +3586,7 @@ fig_defaults = function() {
 # ---------------------------------------------------------
 # Save a ggplot figure to file with default settings
 # ---------------------------------------------------------
-fig_save = function(o, g, ..., path = "figures", width = o$save_width, height = o$save_height) {
+fig_save = function(o, g, ..., path = "results", width = o$save_width, height = o$save_height) {
   
   # Collapse inputs into vector of strings
   fig_name_parts = unlist(list(...))
@@ -3215,6 +3625,6 @@ save_dataframe = function(o, plot_df, fig_name) {
     paste0(".rds")
   
   # Save plotting dataframe in figure folder
-  saveRDS(plot_df, file = paste0(o$pth$figures, save_name))
+  saveRDS(plot_df, file = paste0(o$pth$results, save_name))
 }
 

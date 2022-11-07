@@ -12,9 +12,6 @@
 # ---------------------------------------------------------
 load_data = function(o, fit, synthetic = NULL) {
   
-  # Initiate trivial output
-  Re_df = NULL
-  
   # Check flag for whether we need to load data
   if (fit$.use_data == TRUE) {
     
@@ -35,7 +32,7 @@ load_data = function(o, fit, synthetic = NULL) {
     
     # Load Re estimates if necessary (may or may not use epi data)
     if (fit$.use_Re == TRUE)
-      list[fit, Re_df] = load_Re(o, opts, fit)
+      fit = load_Re(o, opts, fit)
   }
   
   # If fitting to user-defined Re, take this directly from yaml file
@@ -55,7 +52,7 @@ load_data = function(o, fit, synthetic = NULL) {
   #   geom_line(size = 3, alpha = 0.5) +
   #   facet_grid(metric ~ type, scales = "free_y")
   
-  return(list(fit, Re_df))
+  return(fit)
 }
 
 # ---------------------------------------------------------
@@ -67,7 +64,7 @@ load_epi = function(o, opts, fit, synthetic) {
   #
   # NOTE: This is used to test/debug calibration process
   if (opts$data_synthetic == TRUE) {
-    fit$data = load_synthetic(o, synthetic)
+    fit$data = load_synthetic(o, opts, synthetic)
     
     # We're done, return out early
     return(fit)
@@ -77,6 +74,9 @@ load_epi = function(o, opts, fit, synthetic) {
   message(" - Loading epi data: ", opts$data_source$epi)
   
   # ---- Source: ECDC ----
+  
+  # All dates we're interested in
+  dates_df = get_data_dates(opts)
   
   # Pull data from ECDC
   if (opts$data_source$epi == "ECDC") {
@@ -91,9 +91,17 @@ load_epi = function(o, opts, fit, synthetic) {
              deaths    = deaths,
              country   = geoId) %>%
       filter(country == opts$country) %>%
-      mutate(date = format_date(date)) %>%
       select(-country) %>%
-      as.data.table()
+      mutate(date = format_date(date)) %>%
+      # Keep only dates of interest and melt down...
+      right_join(y  = dates_df,
+                 by = "date") %>%
+      pivot_longer(cols = c(-date, -day), 
+                   names_to = "metric") %>%
+      arrange(metric, date) %>%
+      # Summarise time period if desired...
+      change_time_period(dates_df, opts$data_period) %>%
+      setDT()
     
     # Throw error if no case data for this country
     if (nrow(data_cases) == 0)
@@ -102,6 +110,9 @@ load_epi = function(o, opts, fit, synthetic) {
     # Load raw hospital occupancy data from ECDC
     raw_data = read.csv(o$ecdc_api$hosp, fileEncoding = "UTF-8-BOM")
     
+    # We'll also scale 'per 100k' values to pop size to ensure consistency
+    scale_pop = opts$country_pop / 1e5
+    
     # Select only columns of interest and convert dates to R-interpretable
     data_hospital = raw_data %>%
       filter(country == opts$country_name) %>%
@@ -109,18 +120,35 @@ load_epi = function(o, opts, fit, synthetic) {
       select(date, indicator, value) %>%
       pivot_wider(id_cols    = date, 
                   names_from = indicator) %>%
-      select(date, icu_beds = "Daily ICU occupancy", 
-             hospital_beds  = "Daily hospital occupancy") %>%
-      as.data.table()
+      right_join(y  = dates_df,
+                 by = "date") %>%
+      arrange(date) %>%
+      # Scale 'weekly' and 'per 100k' appropriately...
+      mutate(across(contains("Weekly"),   ~ . / 7), 
+             across(contains("per 100k"), ~ . * scale_pop)) %>% 
+      rename(any_of(o$data_dict$ecdc)) %>%
+      # Back fill weekly data to represent that value over the whole week...
+      fill(any_of(names(o$data_dict$ecdc)), .direction = "up") %>% 
+      pivot_longer(cols = c(-date, -day), 
+                   names_to = "metric") %>%
+      filter(!is.na(value)) %>%
+      arrange(metric, date) %>% 
+      # Summarise time period if desired...
+      change_time_period(dates_df, opts$data_period) %>%
+      setDT()
+    
+    # Throw an error if any unknown data metrics are present 
+    unknown_metrics = setdiff(unique(data_hospital$metric), names(o$data_dict$ecdc))
+    if (length(unknown_metrics) > 0)
+      stop("Unknown data variables for country ", opts$country, 
+           ": ", paste(unknown_metrics, collapse = ", "))
     
     # Throw warning if no hospital data for this country
     if (nrow(data_hospital) == 0)
-      warning("No ECDC hospital data found for country '", opts$country)
+      warning("No ECDC hospital data found for country ", opts$country)
     
     # Filter dates of interest for fitting and plotting
-    fit$data = rbind(filter_data_dates(opts, data_cases), 
-                     filter_data_dates(opts, data_hospital)) %>%
-      arrange(type, metric, date) 
+    fit$data = rbind(data_cases, data_hospital)
     
     # Check no data is negative
     if (any(fit$data$value < 0))
@@ -128,7 +156,7 @@ load_epi = function(o, opts, fit, synthetic) {
   }
   
   # Apply pop scaler to every epi metric (-> per 100,000 people)
-  fit$data[, value := value / fit$pop_scaler]
+  fit$data[, value := value / scale_pop]
   
   return(fit)
 }
@@ -138,15 +166,15 @@ load_epi = function(o, opts, fit, synthetic) {
 # ---------------------------------------------------------
 load_Re = function(o, opts, fit) {
   
-  # Sythentic data has this taken care of
+  # Synthetic data has this taken care of
   if (fit$.use_synthetic == TRUE) {
-    Re_values = fit$data[!is.na(value), value]
+    Re_values = fit$data[metric == "Re" & !is.na(value), value]
     
-    # Plotting data is irrelevant here
-    fit$data = fit$data[type != "plot", ]
-    
-    # As is a dataframe of all Re values
-    Re_df = NULL
+    # Throw an error if no Re found - likely need to regenerate
+    #
+    # NOTE: This happens if synthetic was previously generated for epi_data
+    if (length(Re_values) == 0)
+      stop("No Re identified in synthetic data - try regenerating (force_regenerate_synthetic)")
     
   } else {  # Re is to be calculated or loaded
     
@@ -161,10 +189,7 @@ load_Re = function(o, opts, fit) {
       message(" - Calculating Re from epi data")
       
       # Extract incidence data we'll use for fitting
-      incidence = fit$data %>%
-        filter(type   == "fit", 
-               metric == "confirmed") %>%
-        pull(value)
+      incidence = fit$data[metric == "confirmed", value]
       
       # Ensure confirmed cases is being reported in the data
       if (length(incidence) == 0)
@@ -176,9 +201,10 @@ load_Re = function(o, opts, fit) {
       # Calculate Re, returning various details
       Re_info = calculate_Re(incidence, serial_int, fit$input$Re_window)
       
-      # Extract vector of Re values (ignoring NAs)
-      Re_df     = Re_info$Re_df %>% select(date, value)
-      Re_values = as.numeric(na.omit(Re_df$value))
+      # Extract vector of Re values
+      Re_values = Re_info$Re_df %>% 
+        filter(!is.na(value)) %>% 
+        pull(value)
     }
     
     # ---- Source: ETH ----
@@ -195,24 +221,18 @@ load_Re = function(o, opts, fit) {
       raw_data = read.csv(country_api)
       
       # Take the mean Re across all metric sources
-      clean_data = raw_data %>%
+      Re_values = raw_data %>%
         filter(estimate_type == "Cori_slidingWindow") %>%
         select(date, data_type, median_R_mean) %>%
         mutate(date = format_date(date)) %>%
         group_by(date) %>%
-        summarise(Re = mean(median_R_mean, na.rm = TRUE)) %>%
-        mutate(Re = ifelse(is.nan(Re), NA, Re)) %>%
-        as.data.table()
-      
-      # Filter dates of interest for fitting and plotting
-      Re_data = filter_data_dates(opts, clean_data)
-      
-      # Extract vector of Re values
-      Re_df     = Re_data[type == "plot", ] %>% select(date, value)
-      Re_values = Re_data[type == "fit", value]
-      
-      # Only 'data' we take forward is plotting points (include Re 'data')
-      fit$data = rbind(fit$data, Re_data)
+        summarise(value = mean(median_R_mean, na.rm = TRUE)) %>%
+        ungroup() %>%
+        # Take only dates of interest...
+        right_join(y  = get_data_dates(opts), 
+                   by = "date") %>%
+        filter(value > 0) %>%
+        pull(value)
     }
   }
   
@@ -224,16 +244,16 @@ load_Re = function(o, opts, fit) {
   # Take the average over these days 
   fit$target = mean(Re_values[Re_idx])
   
-  # Only 'data' we take forward is plotting points
-  fit$data = fit$data[type == "plot", ]
+  # Remove data we may have used to generate this Re
+  fit$data = NULL
   
-  return(list(fit, Re_df))
+  return(fit)
 }
 
 # ---------------------------------------------------------
 # Load synthetic data (and generate it if it doesn't already exist)
 # ---------------------------------------------------------
-load_synthetic = function(o, synthetic) {
+load_synthetic = function(o, opts, synthetic) {
   
   # File name to save data to / load data from
   save_file = paste0(o$pth$fitting, "synthetic_data.rds")
@@ -251,7 +271,7 @@ load_synthetic = function(o, synthetic) {
     message(" - Generating synthetic data")
     
     # Create new synthetic data by running the model
-    fit_data = generate_synthetic(o, synthetic)
+    fit_data = generate_synthetic(o, opts, synthetic)
     
     # Save this file for potential later re-use
     saveRDS(fit_data, file = save_file)
@@ -263,7 +283,7 @@ load_synthetic = function(o, synthetic) {
 # ---------------------------------------------------------
 # Generate synthetic data by running the model
 # ---------------------------------------------------------
-generate_synthetic = function(o, synthetic) {
+generate_synthetic = function(o, opts, synthetic) {
   
   # Check input is provided and is in list format
   if (!is.list(synthetic) || length(synthetic) == 0)
@@ -275,16 +295,11 @@ generate_synthetic = function(o, synthetic) {
   # Run model with these pre-defined parameters (see model.R)
   result = model(o, "baseline", seed = 1, fit = fit_list, verbose = "bar")
   
-  # TODO: Offset this with a bit of random noise...
-  
-  # Extract model outcomes, this is what we'll fit to
-  model_output = result$output %>%
+  # Extract model outcomes & offset with some noise - this is what we'll fit to
+  fit_data = result$output %>%
     select(date, metric, value) %>%
+    mutate(value = value * rnorm(n(), mean = 1, sd = opts$offset_synthetic)) %>%
     as.data.table()
-  
-  # Replicate data for fitting and plotting
-  fit_data = rbind(mutate(model_output, type = "fit"), 
-                   mutate(model_output, type = "plot"))
   
   return(fit_data)
 }
@@ -292,12 +307,12 @@ generate_synthetic = function(o, synthetic) {
 # ---------------------------------------------------------
 # Filter to only dates of interest
 # ---------------------------------------------------------
-filter_data_dates = function(opts, all_data) {
+get_data_dates = function(opts) {
   
-  # Throw an error if we have insufficient data
-  if (max(all_data$date) < opts$data_end)
-    stop("Data only available up to ", max(all_data$date) - 1, 
-         " (requested ", opts$data_end, ")")
+  # # Throw an error if we have insufficient data
+  # if (max(all_data$date) < opts$data_end)
+  #   stop("Data only available up to ", max(all_data$date) - 1, 
+  #        " (requested ", opts$data_end, ")")
   
   # Calibrating to epi data: go back to start of burn in
   if (opts$type == "epi_data")
@@ -308,50 +323,41 @@ filter_data_dates = function(opts, all_data) {
     days = list(fit = opts$data_days, burn = 0)
   
   # Dates of data we'll fit to
-  fit_end   = format_date(opts$data_end)
-  fit_start = fit_end - days$fit - days$burn + 1
-  
-  # Calibrating to epi data: plot this very same data
-  #
-  # TODO: Should we record all future data here? Then differentiate when actually plotting?
-  if (opts$type == "epi_data") {
-    plot_end   = fit_end # max(all_data$date)
-    plot_start = fit_start
-  }
-  
-  # Calibrating to Re: plot everything into the 'future' (after data_end)
-  if (opts$type == "Re_data") {
-    plot_end   = max(all_data$date)
-    plot_start = fit_end + 1
-  }
+  date_end   = format_date(opts$data_end)
+  date_start = date_end - days$fit - days$burn + 1
   
   # Sequence of dates for fitting and plotting
-  fit_dates  = seq(fit_start,  fit_end,  by = "day")
-  plot_dates = seq(plot_start, plot_end, by = "day")
+  all_dates  = seq(date_start,  date_end,  by = "day")
   
   # Datatable of fitting dates and day indices
-  fit_df = data.table(day  = 1 : length(fit_dates), 
-                      date = fit_dates, 
-                      type = "fit") %>%
+  dates_df = data.table(day  = 1 : length(all_dates), 
+                        date = all_dates) %>%
     filter(day > days$burn)
   
-  # Datatable of plotting dates and day indices
-  plot_df = data.table(day  = 1 : length(plot_dates), 
-                       date = plot_dates, 
-                       type = "plot") %>%
-    filter(day > days$burn)
+  return(dates_df)
+}
+
+# ---------------------------------------------------------
+# Change time period from day to week, month, quater, or year
+# ---------------------------------------------------------
+change_time_period = function(data, dates_df, data_period) {
   
-  # Join the data and melt to long format
-  fit_data = rbind(fit_df, plot_df) %>%
-    left_join(all_data, by = "date") %>%
-    pivot_longer(cols = names(all_data)[-1], 
-                 names_to = "metric") %>%
-    filter(!is.na(value)) %>%
-    select(date = day, metric, value, type) %>%
-    arrange(type, metric, date) %>%
-    as.data.table()
+  # A trivial process is looking at daily data
+  if (data_period != "day") {
+    
+    # Changing daily data to different time period 
+    data %<>% 
+      mutate(date = ceiling_date(date, data_period)) %>%
+      group_by(metric, date) %>%
+      summarise(value = sum(value)) %>% 
+      ungroup() %>%
+      inner_join(dates_df, by = "date") %>%
+      filter(!is.na(value)) %>%
+      select(date, day, metric, value) %>%
+      setDT()
+  }
   
-  return(fit_data)
+  return(data)
 }
 
 # ---------------------------------------------------------

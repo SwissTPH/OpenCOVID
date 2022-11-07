@@ -96,7 +96,7 @@ run_cluster_job = function(o, job_type, task_id) {
                    seed    = this_sim$seed_num, 
                    fit     = fit_list,
                    uncert  = uncert_list, 
-                   verbose = "bar") 
+                   verbose = "none") 
     
     # Save model inputs and outputs as an RDS file
     saveRDS(result, paste0(o$pth$simulations, this_sim$sim_id, ".rds"))

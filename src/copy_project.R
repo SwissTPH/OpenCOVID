@@ -17,10 +17,13 @@
 #   sh bash_launch.sh copy_direction analysis_name
 
 # Copy from (download) or to (upload) shared folder
-copy_direction = "upload" # OPTIONS: "download" or "upload"
+copy_direction = "download" # OPTIONS: "download" or "upload"
 
 # Name of analysis to copy
-analysis_name = "treatment_v2"
+analysis_name = "demo"
+
+# Directory name in shared group folder
+dir_name = "file_transfer"
 
 # ---- Extract inputs (if provided) ----
 
@@ -48,7 +51,7 @@ repo_name = basename(getwd())
 
 # Construct paths to the user's files and shared group files
 user_path  = file.path(unit_path, user, repo_name, "output", "2_scenarios", analysis_name, "")
-group_path = file.path(unit_path, "GROUP", "OpenCOVID", "file_transfer", analysis_name, "")
+group_path = file.path(unit_path, "GROUP", "OpenCOVID", dir_name, analysis_name, "")
 
 # Set up rsync command
 rsync_call = "rsync -aP"

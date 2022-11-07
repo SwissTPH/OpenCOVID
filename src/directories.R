@@ -32,7 +32,7 @@ set_dirs = function(o) {
   pth$config = file.path(pth$code, "config")
   
   # Paths to model configuration files
-  pth$states    = file.path(pth$config, "state_flows.xlsx")
+  pth$states    = file.path(pth$config, "model_states.yaml")
   pth$metrics   = file.path(pth$config, "model_metrics.yaml")
   pth$variables = file.path(pth$config, "model_variables.yaml")
   
@@ -73,13 +73,19 @@ set_dirs = function(o) {
   out$fit_samples = file.path(out$fitting, "fit_samples")
   
   # Paths to scenario files
-  out$scenarios   = file.path(pth_output, "2_scenarios", o$analysis_name)
-  out$simulations = file.path(out$scenarios, "simulations")
-  out$uncertainty = file.path(out$scenarios, "uncertainty")
-  out$arrays      = file.path(out$scenarios, "array_info")
+  pth_scenarios   = file.path(pth_output, "2_scenarios", o$analysis_name)
+  out$scenarios   = file.path(pth_scenarios, "scenarios")
+  out$simulations = file.path(pth_scenarios, "simulations")
+  out$uncertainty = file.path(pth_scenarios, "uncertainty")
   
-  # Path to figures and other outputs
-  out$figures = file.path(pth_output, "3_figures", o$analysis_name)
+  # Path to predictor models for LHC scenarios
+  pth_arrays     = file.path(pth_output, "3_arrays", o$analysis_name)
+  out$array_info = file.path(pth_arrays, "array_info")
+  out$parents    = file.path(pth_arrays, "grid_parents")  # TODO: Pre-summarise grid parents
+  out$endpoints  = file.path(pth_arrays, "lhc_endpoints")
+  
+  # Path to figures and other output results
+  out$results = file.path(pth_output, "4_results", o$analysis_name)
   
   # ---- Create directory structure ----
   

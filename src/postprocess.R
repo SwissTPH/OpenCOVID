@@ -74,6 +74,7 @@ aggregate_results = function(input, raw_output) {
     filter(!grouping %in% c("none", "na")) %>%
     group_by(metric) %>%
     slice(1) %>%
+    ungroup() %>%
     setDT()
   
   # Aggregate values of first grouping
@@ -82,6 +83,7 @@ aggregate_results = function(input, raw_output) {
               by = c("metric", "grouping")) %>%
     group_by(metric, date, scenario, seed) %>%
     summarise(value = sum(value)) %>%
+    ungroup() %>%
     mutate(grouping = "none",
            group    = NA) %>%
     bind_rows(raw_output) %>%
@@ -237,6 +239,7 @@ group_ages = function(o, df, summarised = TRUE) {
       summarise(value = sum(value),
                 lower = sum(lower),
                 upper = sum(upper)) %>%
+      ungroup() %>%
       setDT()
   }
   
@@ -247,6 +250,7 @@ group_ages = function(o, df, summarised = TRUE) {
     age_df = age_df %>%
       group_by(date, metric, seed, scenario, group) %>%
       summarise(value = sum(value)) %>%
+      ungroup() %>%
       setDT()
   }
   

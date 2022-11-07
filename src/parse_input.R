@@ -22,11 +22,15 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
          "\n  but no yaml file was found with this name", 
          "\n  (missing file: ", o$pth$params_user, ")")
   
+  # Read yaml can be done via R or python
+  if (o$read_yaml_engine == "R")      read_yaml_fn = "read_yaml"
+  if (o$read_yaml_engine == "python") read_yaml_fn = "read_yaml_py"
+  
   # Load default model parameters
-  y = read_yaml(o$pth$params_default)
+  y = get(read_yaml_fn)(o$pth$params_default)
   
   # Load user-defined model parameters
-  y_user = read_yaml(o$pth$params_user)
+  y_user = get(read_yaml_fn)(o$pth$params_user)
   
   # Overwrite any parameter defaults for which we have user-defined values 
   #
@@ -47,13 +51,13 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   
   # ---- Apply scenario of choice ----
   
-  # Apply values provided within specified scenario block
+  # Apply values for specified scenario
   #
   # NOTE: Some general checks on the content of all scenarios are perfomed here
   y = parse_scenarios(o, y, scenario, read_array)
   
   # If we only need to read scenario names, return out here with named vector
-  if (scenario == "*read*")
+  if (scenario %in% c("*read*", "*create*"))
     return(y$scenario_names)
   
   # ---- Time ----
@@ -575,7 +579,7 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   # TODO: We need more flexibility here, any priority group could be defined multiple times
   
   # Convert treatment details into datatable
-  treat_df = list2dt(y$treatment)
+  treat_df = list2dt(y$treat_rollout)
   
   # Check whether vaccine conditions are valid
   valid_condition = unique(treat_df$vaccine_condition) %in% 
@@ -593,16 +597,40 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   # Long datatable of priority groups and treatment probabilities
   y$treat_prob = treat_df %>%
     select(-available, -vaccine_condition) %>%
-    pivot_longer(cols = -id) %>%
-    mutate(name  = str_remove(name, "prob_"), 
-           value = ifelse(is.na(value), 0, value)) %>%
-    rename(priority_group = id, 
-           disease_state  = name, 
-           treat_prob     = value) %>%
+    pivot_longer(cols     = c(-id, -coverage), 
+                 names_to = "disease_state") %>%
+    mutate(treat_prob = coverage * value, 
+           treat_prob = ifelse(is.na(treat_prob), 0, treat_prob)) %>%
+    select(priority_group = id, disease_state, treat_prob) %>%
     setDT()
   
   # Remove redundant items
-  y[c("treatment")] = NULL
+  y[c("treat_rollout")] = NULL
+  
+  # ---- Calibration options ----
+  
+  # Easy access calibration options
+  opts = y$calibration_options
+  
+  # Trivialise burn in period if fitting to user-defined Re
+  if (y$calibration_type == "Re_user")
+    opts$data_burn_in = 0
+  
+  # Convert data end to date
+  opts$data_end = format_date(opts$data_end)
+  
+  # Calculate data start date
+  opts$data_start = opts$data_end - opts$data_days - opts$data_burn_in + 1
+  
+  # Trivialise calibration time period if calibrating to Re
+  if (y$calibration_type != "epi_data")
+    y$calibration_time_period = "day"
+  
+  # Overwrite calibration options list and append calibration period
+  y$calibration_options = c(opts, data_period = y$calibration_time_period)
+  
+  # Remove redundant items
+  y[c("calibration_time_period")] = NULL
   
   # ---- Model variables, states, metrics ----
   
@@ -678,7 +706,7 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
 # ---------------------------------------------------------
 overwrite_defaults = function(y, y_overwrite) {
   
-  # Scenario blocks are redundant once files have been loaded
+  # Scenario block field redundant once files have been loaded
   y_overwrite$scenario_block = NULL
   
   # Sanity checks on user-defined inputs
@@ -968,9 +996,15 @@ parse_scenarios = function(o, y, scenario, read_array) {
     
   } else {  # Otherwise, work to do...
     
-    # First flatten any array scenarios
-    if (read_array == TRUE)
-      y = parse_arrays(o, y, scenario)
+    # Check before parsing large arrays - can be expensive
+    if (read_array == TRUE) {
+      
+      # Flatten any array grid scenarios
+      y = parse_array_grid(o, y, scenario)  # See array.R
+      
+      # Sample for any array LHC scenarios
+      y = parse_array_lhc(o, y, scenario)  # See array.R
+    }
     
     # Extract short and long names of all scenarios we've defined
     scenarios_id   = names(y$scenarios)
@@ -991,7 +1025,7 @@ parse_scenarios = function(o, y, scenario, read_array) {
       stop("! All scenarios must have a unique 'name': ", paste0(duplicate_names, collapse = ", "))
     
     # If we only want to read scenario names, return out here
-    if (scenario == "*read*")
+    if (scenario %in% c("*read*", "*create*"))
       return(list(scenario_names = scenarios_name))
     
     # Check the selected scenario actually exists
@@ -1031,191 +1065,15 @@ parse_scenarios = function(o, y, scenario, read_array) {
 }
 
 # ---------------------------------------------------------
-# Flatten and parse parent array scenarios into their children
-# ---------------------------------------------------------
-parse_arrays = function(o, y, scenario) {
-  
-  # Full names of all scenarios
-  scenarios_name = unlist(lapply(y$scenarios, function(x) x$name))
-  
-  # ---- Scenario arrays ----
-  
-  # Indentify where (if anywhere) arrays are defined
-  array_idx   = grepl("*\\.array\\.*", names(unlist(y$scenarios)))
-  array_items = names(unlist(y$scenarios))[array_idx]
-  
-  # Names of parent scenarios that have array items
-  parents = get_array_parents(array_items)
-  
-  # Loop through all parent array scenarios
-  for (parent in parents) {
-    
-    # Array variables associated with this parent
-    array_vars_idx = grepl(paste0("^", parent, "\\."), array_items)
-    array_vars = array_items[array_vars_idx] %>%
-      str_remove(paste0(parent, "\\.")) %>%
-      str_remove("\\.array\\..*") %>%
-      str_replace_all("\\.", "$") %>%
-      unique()
-    
-    # Loop through these variables
-    vars_list = list()
-    for (var in array_vars) {
-      
-      # String which - when evaluated - indexes the deep nested array details for this variable 
-      array_str = paste("y$scenarios", parent, var, "array", sep = "$")
-      
-      # Evaluate the string to obtain a list of inputs to R's seq function
-      array_eval = eval_str(array_str)
-      
-      # Remove the ID and name items, and set the function name to seq
-      array_fn = c(fn = "seq", list.remove(array_eval, c("id", "name")))
-      
-      # Evaluate the seq function
-      all_vals = parse_fn(array_fn)
-      
-      # Use child scenario indices for IDs
-      all_ids = paste0(array_eval$id, 1 : length(all_vals))
-      
-      # Store datatable of all key details
-      var_df = data.table(dim  = array_eval$id, 
-                          id   = all_ids, 
-                          var  = var, 
-                          val  = all_vals, 
-                          desc = array_eval$name) 
-      
-      # Store naming convention (if it has been provided)
-      if (!is.null(array_eval$name))
-        var_df$name = paste0(array_eval$name, ": ", all_vals)
-      
-      # Store datatable
-      vars_list[[var]] = var_df
-    }
-    
-    # Datatable of all values of each variable
-    vars_df = rbindlist(vars_list, fill = TRUE) %>%
-      mutate(across(c(dim, id), fct_inorder))
-    
-    # Expand grid to all individual array elements
-    array_scen_df = vars_list %>%
-      lapply(function(x) x$id) %>%
-      unique() %>%
-      expand.grid() %>%
-      unite("x", sep = ".", remove = FALSE) %>%
-      pivot_longer(-x, names_to = "var_ref", 
-                   values_to    = "id") %>%
-      left_join(vars_df, by = "id") %>%
-      pivot_wider(id_cols = x, 
-                  names_from  = var, 
-                  values_from = val) %>%
-      mutate(id = paste0(parent, ".", x)) %>%
-      select(id, all_of(array_vars))
-    
-    # Extract full names of all array scenarios
-    array_names = vars_df %>%
-      group_by(id) %>%
-      slice_head(n = 1) %>%
-      split(., f = .$dim) %>%
-      lapply(function(x) x$name) %>%
-      expand.grid() %>%
-      unite("names", sep = ", ") %>%
-      pull(names)
-    
-    # Ensure we have equal numbers
-    #
-    # NOTEL: This error will also be thrown if dim parts are of different sizes
-    if (nrow(array_scen_df) != length(array_names))
-      stop("Inconsistent number of array scenario elements")
-    
-    # Apply names of elements to array datatable
-    array_df = array_scen_df %>%
-      mutate(name = paste0(scenarios_name[[parent]], 
-                           " (", array_names, ")"), 
-             parent = parent) %>%
-      select(id, parent, all_of(array_vars), name)
-
-    # ---- Construct child scenarios ---- 
-    
-    # Store details of the parent array scenario
-    array_details = y$scenarios[[parent]]
-    
-    # Loop through each individual child
-    for (i in 1 : nrow(array_df)) {
-      this_scen = array_df[i, ]
-      
-      # Start with the basic structure of the parent
-      scen_details = list_modify(array_details, 
-                                 id   = this_scen$id, 
-                                 name = this_scen$name)
-      
-      # Reduce array_df down to just values we want to use for this child scenario
-      val_df = this_scen %>% select(-id, -name, -parent)
-      
-      # Loop through the values
-      for (val_name in names(val_df)) {
-        this_val = val_df[[val_name]]
-        
-        # Class of parameter in baseline - could be numeric or integer
-        param_class = class(eval_str("y$", val_name))
-        
-        # If integer, ensure consistent class
-        if (param_class == "integer")
-          this_val = paste0("as.integer(", this_val, ")")
-        
-        # String to be evaluated to set the individual value
-        eval_str("scen_details$", val_name, " = ", this_val)
-      }
-      
-      # Append this child scenario
-      y$scenarios[[this_scen$id]] = scen_details
-    }
-    
-    # Remove the parent scenario
-    y$scenarios[[parent]] = NULL
-    
-    # ---- Store array details ----
-    
-    # Only store array details if not reading scenario names
-    if (scenario != "*read*") {
-      
-      # Initiate array info list with basic scenario ID dataframe
-      array_info = list(meta = select(array_df, parent, scenario = id, name))
-      
-      # Append info about the variables - IDs and names
-      array_info$vars = vars_df[, .(dim, desc)] %>%
-        rename(variable_id   = dim, 
-               variable_name = desc) %>%
-        group_by(variable_id) %>%
-        slice_head(n = 1) %>%
-        ungroup()
-      
-      # Dimension details
-      dim_df = vars_df[!duplicated(vars_df$dim), .(dim, var)]
-      
-      # Store all the values to be simulated
-      array_info$values = array_df %>%
-        rename(setNames(dim_df$var, dim_df$dim)) %>%
-        select(scenario = id, all_of(dim_df$dim)) %>%
-        pivot_longer(cols = -scenario, 
-                     names_to = "variable_id")
-      
-      # Save this info for use when collating all results
-      saveRDS(array_info, file = paste0(o$pth$arrays, parent, ".rds"))
-    }
-  }
-  
-  return(y)
-}
-
-# ---------------------------------------------------------
 # Parse disease, care, and prognosis states
 # ---------------------------------------------------------
 parse_model_states = function(o, y) {
   
-  # Load excel file
-  y$model_flows = read_excel(o$pth$states, 1) %>% 
-    select(-notes) %>% 
-    setDT()
+  # Load model flows yaml file
+  model_flows = read_yaml(o$pth$states)
+  
+  # Reformat into datatable
+  y$model_flows = list2dt(model_flows$state_flows, fill = TRUE)
   
   # Distinct disease, care, and prognosis states
   y$model_states$disease   = unique(na.omit(y$model_flows$disease))
@@ -1323,66 +1181,5 @@ parse_model_metrics = function(o, y) {
   y[c("model_metrics")] = NULL
   
   return(y)
-}
-
-# ---------------------------------------------------------
-# Extract parent scenario names from a vector of child names
-# ---------------------------------------------------------
-get_array_parents = function(scenarios, multidim = FALSE) {
-  
-  if (!is.null(names(scenarios)))
-    stop("Should this be allowed?")
-  
-  # Array scenario IDs contain periods
-  parents_df = scenarios %>%
-    str_split_fixed( "\\.", n = 2) %>%
-    as.data.table() %>%
-    setnames(qc(parent, sub)) %>%
-    filter(sub != "")
-  
-  # Extract unique parents
-  parents = unique(parents_df$parent)
-  
-  # We may also want to determine if arrays are multi-dimensional  
-  if (multidim == TRUE) {
-    
-    # Loop through array parents
-    for (this_parent in parents) {
-      children = subset(parents_df, parent == this_parent)$sub
-      
-      # Multi-dimensional arrays identified by period symbols in child names
-      is_multidim = all(grepl("\\.", children))
-      
-      # Remove this parent if not a multi-dimensional array
-      if (!is_multidim)
-        parents = setdiff(parents, this_parent)
-    }
-  }
-  
-  return(parents)
-}
-
-# ---------------------------------------------------------
-# Extract children scenario names given a parent
-# ---------------------------------------------------------
-get_array_children = function(scenarios, parents) {
-  
-  # Initiate child character vector
-  children = character()
-  
-  # Iteraate through any parents provided (often only one)
-  for (parent in parents) {
-    
-    # Expression to match to identify children
-    parent_exp = paste0("^", parent, "\\..*")
-    
-    # Indices of such scenarios
-    children_idx = grepl(parent_exp, scenarios)
-    
-    # Extract scenario names
-    children = c(children, scenarios[children_idx])
-  }
-  
-  return(children)
 }
 
