@@ -55,7 +55,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # Use R or python backend for parsing yaml files
   #
   # NOTE: Python package can handle anchors and aliases
-  o$read_yaml_engine = "python" # OPTIONS: "R" or "python"
+  o$read_yaml_engine = "R" # OPTIONS: "R" or "python"
   
   # ---- Calibration settings ----
   
