@@ -34,7 +34,7 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   
   # Overwrite any parameter defaults for which we have user-defined values 
   #
-  # NOTE: A few sanity checks on the user-defined inputs are perfomed here
+  # NOTE: A few sanity checks on the user-defined inputs are performed here
   list[y, u] = overwrite_defaults(y, y_user)
   
   # If we only need uncertainty details, return out now
@@ -433,46 +433,25 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   
   # ---- Vaccine rollout ----
   
-  # Join vaccine history and future details with priority groups
+  # Join vaccine rollout details with priority groups
   v$details = y$priority_groups[, .(id)] %>%
-    full_join(list2dt(y$vaccine_history), by = "id") %>%
     full_join(list2dt(y$vaccine_rollout), by = "id")
   
   # Check for any missing values - will occur if priority groups do not align
   if (any(is.na(v$details)))
-    stop("Non-conformable priority groups and vaccine history/rollout defintions")
+    stop("Non-conformable priority groups and vaccine rollout defintions")
   
   # Sanity check: n_days_init should be greater than all vaccine init start dates
-  if (any(v$details$init_start < y$n_days_init))
+  if (any(v$details$start < y$n_days_init))
     stop("It is an error to initiate vaccination before epidemic outbreak")
   
-  # Sanity check: init dates should be neagtive
-  if (any(v$details[, .(init_start, init_end)] > 0))
-    stop("Vaccine history 'init_start' and 'init_end' must be non-positive")
-  
   # Sanity check: end date not before start date
-  if (any(v$details[, init_start > init_end]))
-    stop("Vaccine history 'init_start' cannot be greater than 'init_end'")
+  if (any(v$details[, start > end]))
+    stop("Vaccine rollout 'start' cannot be greater than 'end'")
   
-  # Sanity check: 
-  if (any(v$details[init_start == init_end, init_coverage] > 1e-6))
-    stop("Vaccine history 'init_coverage' must be zero if 'init_start' == 'init_end'")
-  
-  # Sanity check: mas scale-up dates should positive
-  if (any(v$details[, .(max_start, max_end)] < 0))
-    stop("Vaccine rollout 'max_start' and 'max_end' must be non-negative")
-  
-  # Sanity check: end date not before start date
-  if (any(v$details[, max_start > max_end]))
-    stop("Vaccine rollout 'max_start' cannot be greater than 'max_end'")
-  
-  # Sanity check: Max coverage should be at least init coverage
-  if (any(v$details[, init_coverage - max_coverage] > 1e-6))
-    stop("Vaccine 'init_coverage' cannot be greater than 'max_coverage'")
-  
-  # Sanity check: We cannot scale-up further if there is no time to do so
-  if (any(v$details[max_start == max_end, max_coverage - init_coverage] > 1e-6))
-    stop("Vaccine 'max_coverage' must be equal to 'init_coverage' if 'max_start' == 'max_end'")
+  # Sanity check: coverage is trivial if dates are trivial
+  if (any(v$details[start == end, coverage] > 1e-6))
+    stop("Vaccine rollout 'coverage' must be zero if 'start' == 'end'")
   
   # Vaccine booster details - totally fine to have NAs here
   y$booster_details = y$priority_groups[, .(id)] %>% 
@@ -484,11 +463,8 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   # Scale boosters per day for this population size
   y$booster_doses = (y$booster_doses / 1e5) * y$population_size
   
-  # Day last vaccination given for each group
-  group_end = v$details[, ifelse(max_end > 0, max_end, init_end)]
-  
   # Check that all groups are finished vaccinating before boosters are forced
-  force_check = group_end >= y$booster_details$force_start
+  force_check = v$details$end >= y$booster_details$force_start
   force_fail  = v$details$id[sapply(force_check, isTRUE)]
   
   # Sanity check that boosters are not forced before everyone in this group is vaccinated
@@ -496,34 +472,36 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
     stop("Vaccine group(s) are forced boosters before everyone is even vaccinated: ",
          paste(force_fail, collapse = ", "))
   
-  # Preallocate temporal vaccine coverage matrix (one column per priority group)
-  v$coverage = t(matrix(data = v$details$init_coverage, 
+  # Preallocate starting point of primary vaccine coverage
+  v$coverage_init = setNames(v$details$coverage, v$details$id)
+  
+  # Preallocate temporal primary vaccine coverage matrix (one column per priority group)
+  v$coverage = t(matrix(data = v$details$coverage, 
                         ncol = y$n_days, 
                         nrow = nrow(y$priority_groups), 
                         dimnames = list(v$details$id)))
+  
+  # Update both v$coverage_init & v$coverage if primary vaccination continues into future...
   
   # Loop through the priority groups
   for (i in seq_len(nrow(y$priority_groups))) {
     this_group = v$details[i, ]
     
-    # Skip this process if no max coverage to reach
-    if (this_group$max_start < y$n_days && 
-        this_group$max_end - this_group$max_start > 0) {
+    # Skip this process if no future primary vaccinations
+    if (this_group$start < y$n_days && this_group$end > 0) {
       
-      # Linear scale up from current to maximal coverage
-      growth_vec = seq(this_group$init_coverage, this_group$max_coverage, 
-                       length.out = this_group$max_end - this_group$max_start + 1)
+      # Linear scale up from zero to desired coverage
+      growth_days = this_group$end - this_group$start + 1
+      growth_vec  = seq(0, this_group$coverage, length.out = growth_days)
       
       # Date indicies of growth scale up - may be truncated by n_days
-      growth_idx = seq_along(growth_vec) + this_group$max_start
-      growth_idx = growth_idx[growth_idx <= y$n_days]
+      growth_idx = rev(growth_days - (1 : this_group$end) + 1)
       
-      # Apply this coverage - clipping vector if necessary
-      v$coverage[growth_idx, i] = growth_vec[-1][seq_along(growth_idx)]
+      # Apply this coverage
+      v$coverage[1 : this_group$end, i] = growth_vec[growth_idx]
       
-      # Set remaining days to max coverage
-      if (this_group$max_end < y$n_days)
-        v$coverage[max(growth_idx) : y$n_days, i] = this_group$max_coverage
+      # Also update initial vaccine coverage
+      v$coverage_init[i] = v$coverage[1, i]
     }
   }
   
@@ -532,7 +510,7 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
     stop("Vaccine coverage matrix contains NAs")
   
   # Remove redundant items
-  y[c("vaccine_history", "vaccine_rollout", "booster_rollout")] = NULL
+  y[c("vaccine_rollout", "booster_rollout")] = NULL
   
   # We can now append the vaccine list to output list
   y$vaccine = v
@@ -554,7 +532,7 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   # Preallocate PrEP coverage vector
   y$prep$coverage = rep(0, y$n_days)
   
-  # Linear scale up from current to maximal coverage
+  # Linear scale up from zero to desired coverage
   growth_vec = seq(0, y$prep_rollout$coverage, 
                    length.out = y$prep_rollout$end - y$prep_rollout$start + 1)
   
@@ -565,7 +543,7 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   # Apply this coverage - clipping vector if necessary
   y$prep$coverage[growth_idx] = growth_vec[seq_along(growth_idx)]
   
-  # Set remaining days to max coverage
+  # Set remaining days to desired coverage
   if (y$prep_rollout$end < y$n_days)
     y$prep$coverage[max(growth_idx) : y$n_days] = y$prep_rollout$coverage
   

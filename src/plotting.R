@@ -128,7 +128,7 @@ plot_temporal = function(o, fig_name, ...) {
   # ---- Plot data ----
   
   # Load fitting details - epi data / Re target contained within
-  fit = load_calibration(o, throw_error = TRUE)
+  fit = load_calibration(o, throw_error = FALSE)
   
   # Check whether fitting has used any epi data
   if (f$fit_target && is.data.table(fit$data)) {
@@ -803,7 +803,8 @@ plot_heatmap = function(o, fig_name, ...) {
                    values_to = "scenario") %>%
       left_join(result_df, by = c("array_type", "scenario")) %>%
       pivot_wider(id_cols    = c(all_of(dim_id)), 
-                  names_from = array_type)
+                  names_from = array_type) %>%
+      setDT()
     
     # Set dif as trivial if not plotting dif array
     if (!plot_dif)

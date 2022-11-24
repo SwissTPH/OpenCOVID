@@ -478,7 +478,7 @@ create_ppl = function(p, n = NULL, init = TRUE, verbose = "none") {
   for (group_id in p$priority_groups$id) {
     
     # Proportion of this group that would accept a vaccine (ie max coverage)
-    acceptance = p$vaccine$details[id == group_id, max_coverage]
+    acceptance = p$vaccine$details[id == group_id, coverage]
     booster    = p$booster_details[id == group_id, probability]
     
     # Sample logical and populate vaccine_accept variable
@@ -525,21 +525,20 @@ initiate_epidemic = function(p, ppl) {
   for (priority_id in p$priority_groups$id) {
     group = p$vaccine$details[id == priority_id, ]
     
-    # Skip this if we have zero max coverage for this group
-    if (group$max_coverage > 1e-6) {
+    # Skip this if we have zero coverage for this group
+    if (group$coverage > 1e-6) {
       
       # IDs of all those in this priority group who will accept the vaccine
       group_id = ppl[priority_group == priority_id & vaccine_accept == TRUE, id]
       
-      # Proportion of group and absolute number previously vaccinated
-      p_vaccinate = group$init_coverage / group$max_coverage
-      n_vaccinate = round(length(group_id) * p_vaccinate)
+      # Absolute number vaccinated in the past
+      n_vaccinate = round(length(group_id) * p$vaccine$coverage_init[[group$id]])
       
       # Sample IDs of those previously vaccinated - uniformly for all in this priority group
       vaccinate_id = sample_vec(group_id, size = n_vaccinate)
       
       # Sample number of days each person has been vaccinated for
-      ppl[vaccinate_id, days_vaccinated := -sample_vec(group$init_start : min(group$init_end, -1), 
+      ppl[vaccinate_id, days_vaccinated := -sample_vec(group$start : min(group$end, -1), 
                                                        size = .N, replace = TRUE)]
       
       # Assign the 'initial' vaccine to these individuals
@@ -1183,7 +1182,7 @@ fn_vaccinate = function(p, ppl, date_idx, n_priority_group) {
   # Coverage difference between yesterday and today
   #
   # NOTE: Binding initial coverage so we consistently index a 2D matrix
-  coverage_matrix = rbind(p$vaccine$details$init_coverage, p$vaccine$coverage)
+  coverage_matrix = rbind(p$vaccine$coverage_init, p$vaccine$coverage)
   coverage_diff   = coverage_matrix[date_idx : (date_idx + 1), ] %>%
     matrix(nrow = 2, dimnames = list(1 : 2, colnames(coverage_matrix)))
   

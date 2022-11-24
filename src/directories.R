@@ -52,6 +52,10 @@ set_dirs = function(o) {
       o$analysis_name = overwrite_name
   }
   
+  # Throw error if illegal characters used
+  if (grepl("\\.", o$analysis_name))
+    stop("Analysis name should not contain any period characters")
+  
   # ---- Model parameter files ----
   
   # Default model parameters

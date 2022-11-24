@@ -55,7 +55,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # Use R or python backend for parsing yaml files
   #
   # NOTE: Python package can handle anchors and aliases
-  o$read_yaml_engine = "R" # OPTIONS: "R" or "python"
+  o$read_yaml_engine = "python" # OPTIONS: "R" or "python"
   
   # ---- Calibration settings ----
   
@@ -75,7 +75,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   #
   # OPTIONS: 
   #   "emulated" := Global minimum of emulated space
-  #  "simulated" := Lowest objective value from all already simualted parameter sets
+  #  "simulated" := Lowest objective value from all already simulated parameter sets
   o$best_param_set = "emulated"
   
   # Check calibration file consistency before simulating scenarios
@@ -224,7 +224,6 @@ set_options = function(do_step = NA, quiet = FALSE) {
   
   # Flags for custom figures
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)
-  o$plot_manuscript  = TRUE  # Run manuscript.R (if it exists)
   
   # ---- Override options ----
   

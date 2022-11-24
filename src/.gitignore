@@ -3,6 +3,7 @@
 *.nfs*
 *.RDS
 *.rds
+core*
 README.html
 /my_results.R
 config/my_options.yaml
