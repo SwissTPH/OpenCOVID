@@ -2847,6 +2847,75 @@ plot_seasonality_profile = function(o, fig_name, ..., labels = NULL, colours = N
 }
 
 # ---------------------------------------------------------
+# Plot all options for air pollution - susceptibility relationship
+# ---------------------------------------------------------
+plot_pollution_relationships = function(o, fig_name, model_input) {
+  
+  # Air pollution levels to evaluate
+  x_values = 1 : 20
+  
+  # Linear increase in susceptibility due to worsening air quality
+  sus_increase = (model_input$air_pollution$susceptibility - 1)
+  y_values     = 1 + x_values * sus_increase
+  
+  # Transform as appropriate
+  values_df = data.table(linear = y_values, 
+                         log    = 1 + log(y_values), 
+                         log10  = 1 + log10(y_values))
+  
+  # Construct plotting dataframe
+  plot_df = values_df %>%
+    mutate(x = x_values) %>%
+    pivot_longer(cols     = -x, 
+                 names_to = "relationship") %>%
+    mutate(relationship = fct_inorder(relationship)) %>%
+    arrange(relationship) %>%
+    setDT()
+  
+  # Plot the curves for all relationships
+  g = ggplot(plot_df, aes(x = x, y = value, colour = relationship)) + 
+    geom_line(size = 2)
+  
+  # Plot reference line for air pollution level modelled in this scenario
+  g = g + geom_vline(xintercept = model_input$air_pollution_exposure, 
+                     linetype   = "dashed")
+  
+  # Add plot title and axes labels
+  g = g + ggtitle("Air pollution-susceptibility relationship assumptions") +
+    xlab("Increase in air pollution") +
+    ylab("Increase in susceptibility per SARS-CoV-2 exposure")
+  
+  # Prettify axes
+  g = g + 
+    scale_y_continuous(limits = c(1, NA), 
+                       expand = expansion(mult = c(0, 0.05))) + 
+    scale_x_continuous(expand = expansion(mult = c(0, 0)))
+  
+  # Prettify theme
+  g = g + theme_classic() + 
+    theme(plot.title    = element_text(size = 28, hjust = 0.5),
+          axis.title    = element_text(size = 24),
+          axis.text     = element_text(size = 14),
+          axis.line     = element_blank(),
+          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
+          panel.spacing = unit(1, "lines"),
+          strip.background = element_blank(), 
+          legend.text   = element_text(size = 16),
+          legend.title  = element_blank(),
+          legend.key    = element_blank(),
+          legend.position = "right", 
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
+          legend.box.background = element_rect())
+  
+  # Save figure (as long as fig_name is not trivial)
+  if (!is.null(fig_name))
+    fig_save(o, g, fig_name)
+  
+  return(g)
+}
+
+# ---------------------------------------------------------
 # Plot parameter uncertainty distributions
 # ---------------------------------------------------------
 plot_uncertainty = function(o, fig_name) {
@@ -2876,8 +2945,8 @@ plot_uncertainty = function(o, fig_name) {
   g = g + ggtitle("Parameter uncertainty distributions") + 
     ylab("Probability density") + xlab("Parameter value")
   
-  # Set x axes to user-defined limits (see options.R)
-  g = g + scale_x_continuous(expand = expansion(mult = c(0, 0))) + 
+  # Set x axes to user-defined limits
+  g = g + scale_x_continuous(expand = expansion(mult = c(0, 0))) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
   
   # Prettify theme

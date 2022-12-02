@@ -3,6 +3,8 @@
 # Example analysis file to run a demo OpenCOVID analysis
   
 # ---- Baseline settings ----
+
+population_size: 100000
         
 # Run all simulations for 500 days into the future
 n_days: 200
@@ -12,7 +14,7 @@ n_days_init: -730
 previously_infected:
   uncertainty:
     fn: "norm"  # Options: unif (min, max), norm (mean, sd), pois (lambda)
-    mean: 0.4
+    mean: 0.75
     sd: 0.04
 
 # Number of days to shift seasonality start
@@ -56,27 +58,16 @@ variants_novel:
   severity: 1.0
   immuno_escape: 0.5
 
-# Vaccination history
-vaccine_history: 
-- id: high_risk
-  init_coverage: 0.9
-  init_start: -120  # Days into the past that vaccination program began
-  init_end: -60     # Days into the past that vaccination program ended
-- id: low_risk
-  init_coverage: 0.4
-  init_start: -80   # Days into the past that vaccination program began
-  init_end: 0       # Set to zero as vaccination program ongoing
-
-# Vaccination future 
+# Primary vaccination rollout (use -ve for past dates, +ve for future dates)
 vaccine_rollout: 
 - id: high_risk
-  max_coverage: 0.9
-  max_start: 0  # Set to zero as rollout already complete
-  max_end: 0    # Set to zero as rollout already complete
+  coverage: 0.8
+  start: -180   # Date index for primary vaccination to begin
+  end: -150     # Date index for primary vaccination to reach 'coverage'
 - id: low_risk
-  max_coverage: 0.6
-  max_start: 0  # Set to zero as vaccination program ongoing
-  max_end: 70   # Days into the future that vaccination scale up will reach max coverage
+  coverage: 0.6
+  start: -150
+  end: -120
   
 # Vaccine booster rollout (only groups to recieve a booster need to be specified)
 booster_rollout:

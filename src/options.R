@@ -79,7 +79,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$best_param_set = "emulated"
   
   # Check calibration file consistency before simulating scenarios
-  o$check_fit_consistency = TRUE
+  o$check_fit_consistency = FALSE  # Should be more efficient to be a default check
   
   # Selection of model parameters that can be changed without the need for re-fitting
   #

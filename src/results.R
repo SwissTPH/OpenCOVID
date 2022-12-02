@@ -264,6 +264,10 @@ run_results = function(o) {
     # NOTE: This function is able to handle multiple scenarios
     fig_name = c("Seasonality profile", scenario_assumptions)
     plot_seasonality_profile(o, fig_name, model_input)
+    
+    # Plot air pollution - susceptibility relationship options
+    fig_name = c("Air pollution relationships", scenario_assumptions)
+    plot_pollution_relationships(o, fig_name, model_input) 
 
     # Plot parameter uncertainty distributions (for all scenarios at once)
     plot_uncertainty(o, "Parameter uncertainty distributions")

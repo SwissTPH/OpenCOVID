@@ -17,6 +17,7 @@
 # ---------------------------------------------------------
 model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FALSE, verbose = "date") {
   
+  # Initiate model timer
   tic("model")
   
   # Set random seed generator if input defined
@@ -61,12 +62,12 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
   for (state in p$model_states$all)
     states[[state]] = rep(0, p$n_days)
   
-  # Preallocate lists for calculation of effective reproduction number
-  serial_int = vector("list", p$n_days)
-  incidence  = rep(0, p$n_days)
-  
   # Preallocate model output datatable (denoted 'm' for short)
   m = preallocate_output(p)
+  
+  # Preallocate list for collecting epidemiological statistics
+  epi_stats = list(incidence  = rep(0, p$n_days), 
+                   serial_int = vector("list", p$n_days))  # For calculation of Re
   
   # Preallocate list for healthcare and intervention costs
   cost_units = list(vaccine   = rep(0, p$n_days), 
@@ -94,262 +95,46 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
     # Copy people datatable for the next time step
     ppl = data.table::copy(ppl_df)
     
-    # ---- Basic epidemiological indicators ----
+    # Calculate basic epidemiological indicators
+    list[m, epi_stats] = fn_epi_stats(m, p, ppl, epi_stats, i)
     
-    # Total number of people currently infected and infectious
-    all_infected   = ppl[days_infected > 0, id]
-    all_infectious = ppl[days_infectious > 0, id]  # Including those in isolation
+    # ---- New infections ----
     
-    # Easy access total number of people currently infected
-    n_infected = length(all_infected)
+    # Calculate which infected-susceptible contacts lead to transmission
+    list[m, ppl, id] = fn_transmission(m, p, ppl, network, epi_stats, i)
     
-    # Store total number of people infected and infectious
-    m = update_output(m, p, i, "currently_infected",   ppl[all_infected, ])
-    m = update_output(m, p, i, "currently_infectious", ppl[all_infectious, ])
+    # Import infections acquired elsewhere
+    list[m, ppl, id] = fn_importation(m, p, ppl, epi_stats, id, i)
     
-    # Total number of people currently in isolation
-    currently_isolated = ppl[care_state %in% "iso", id]
-    m = update_output(m, p, i, "currently_isolated", ppl[currently_isolated, ])
+    # New viral variant emergence
+    list[m, ppl, id] = fn_emergence(m, p, ppl, epi_stats, id, i)
     
-    # All infectious individuals not in isolation - these contributing to new infections
-    all_infecting = setdiff(all_infectious, currently_isolated)
-    
-    # Total number of people currently infected with symptoms (mild, severe, or critical)
-    currently_symptomatic = ppl[disease_state %in% c("mild", "severe", "crit"), id]
-    m = update_output(m, p, i, "currently_symptomatic", ppl[currently_symptomatic, ])
-    
-    # All susceptible people and their level of immunity (from previous infection and/or vaccination)
-    all_susceptible      = ppl[disease_state == "susc", id]
-    susceptible_immunity = ppl[all_susceptible, immune_state]
-    
-    # For population susceptibility, weight by immunity state and sum
-    pop_susceptibility = 100 * sum(1 - susceptible_immunity) / p$population_size
-    m = update_output(m, p, i, "pop_susceptibility", pop_susceptibility)
-    
-    # Prevalence across whole population (proportion currently infected)
-    pop_prevalence = 100 * n_infected / p$population_size
-    m = update_output(m, p, i, "pop_prevalence", pop_prevalence)
-    
-    # Sero-prevalence across whole population (proportion that have been infected thus far)
-    pop_seroprevalence = 100 * ppl[num_infections > 0, .N] / p$population_size
-    m = update_output(m, p, i, "seroprevalence", pop_seroprevalence)
-    
-    # Virus variant of each infected individual
-    all_variants = factor(ppl[all_infected, variant], levels = p$variants$id)
-    m = update_output(m, p, i, "variant_prevalence", ppl[all_infected, ])
-    
-    # Store variant prevalence as simple unnamed vector for use when importing cases
-    if (n_infected == 0) variant_prevalence = c(1, rep(0, nrow(p$variants) - 1))
-    else variant_prevalence = as.numeric(table(all_variants) / n_infected)
-    
-    # ---- New local infections ----
-    
-    # All infectious-susceptible contacts - considers any NPI effect
-    exposures = fn_exposures(p, network, all_infecting, all_susceptible, i)
-    
-    # Variant index of infectious individuals (can impact both infectiousness and susceptibility)
-    variant_idx = match(ppl[exposures$from, variant], p$variants$id)
-    
-    # TODO: Consider different beta values based on network layer
-    
-    # Infectiouness is a multiplier of viral load, seasonality, and viral variant
-    beta = ppl[exposures$from, viral_load] * 
-      p$beta * p$seasonality[i] * p$variants$infectivity[variant_idx]
-    
-    # Calculate immunity for each exposure (depends on variant exposed to)
-    list[ppl, exposures] = fn_immunity_infection(p, ppl, variant_prevalence, exposures)
-    
-    # Draw random numbers to determine which contacts lead to transmission
-    transmission_df = exposures %>% 
-      mutate(probability = pmin(beta * (1 - immunity), 1),  # Probability of transmission in each contact
-             rand = runif(n()), 
-             transmission = rand < probability) %>% 
-      filter(transmission == TRUE) %>%  # Only interested in transmission events
-      group_by(to) %>%  # Uniqueness then guaranteed
-      summarise(from = first(from)) %>%  # Only consider first transmission if multiple
-      ungroup() %>%
-      mutate(variant = ppl[from, variant]) %>%  # Variant is passed down from infector
-      setDT()
-    
-    # NOTE: If desirable, we could here store number of people infected by each individual - could 
-    #       be useful if looking at the effects on removing key individuals from transmission chain
-    
-    # Extract the IDs and variants of new local transmissions
-    local_id      = transmission_df$to 
-    apply_variant = transmission_df$variant
-    
-    # Begin infections for these people
-    ppl = fn_begin_infection(p, ppl, local_id, apply_variant)
-    
-    # Store number of new local infections among susceptibles
-    m = update_output(m, p, i, "new_local_infections", ppl[local_id, ])
-    
-    # ---- New imported infections ----
-    
-    # Number of infection imports this time step
-    #
-    # NOTE: Rounding up here as we always want at least 1 and sample_vec rounds down by default
-    n_imports = ceiling(p$import_constant * length(all_susceptible))
-    
-    # Sample indices - random for now, but may want to consider other factors later
-    import_id = sample_vec(all_susceptible, n_imports, prob = 1 - susceptible_immunity)
-    
-    # Select virus variants for these individuals based on the proportion currently in circulation
-    apply_variant = sample_vec(p$variants$id, n_imports, 
-                               prob = variant_prevalence, replace = TRUE)
-    
-    # Begin infections for these people
-    ppl = fn_begin_infection(p, ppl, import_id, apply_variant)
-    
-    # Store number of new imported infections
-    m = update_output(m, p, i, "new_importations", ppl[import_id, ])
-    
-    # ---- Introduce new variant ----
-    
-    # All newly infected people (including imports) we could use to initiate new mutation
-    newly_infected_id = c(local_id, import_id)
-    new_variant_id    = integer(0)
-    
-    # Check whether any variants are due to be imported in this time step
-    if (i %in% p$variants$import_day) {
-      
-      # Details of the variant to be imported
-      this_variant = p$variants[p$variants$import_day == i, ]
-      
-      # Do we have enough new infections to assign the new variant to
-      n_imports_remain = max(0, this_variant$import_number - length(newly_infected_id))
-      
-      # Deal with case where we need to introduce elsewhere
-      if (n_imports_remain > 0) {
-        
-        # Can reassign variant for the already infected OR force infect susceptibles - we do the latter
-        newly_forced_id = sample_vec(all_susceptible, n_imports_remain, 
-                                     prob = 1 - susceptible_immunity)
-        
-        # Begin infections for these people
-        ppl = fn_begin_infection(p, ppl, newly_forced_id, this_variant$id)
-        
-        # Extend the people we can choose from to 'reassign' the new variant to
-        newly_infected_id = c(newly_infected_id, newly_forced_id)
-      }
-      
-      # Sample this many people from those recently infected 
-      new_variant_id = sample_vec(newly_infected_id, this_variant$import_number)
-      
-      # Assign the new mutation variant to these individuals
-      ppl[new_variant_id, variant := this_variant$id]
-    }
-    
-    # ---- Total number of new infections ----
-    
-    # All newly infected people (including all imports)
-    all_new_infections = c(local_id, import_id, new_variant_id)
-    m = update_output(m, p, i, "all_new_infections", ppl[all_new_infections, ])
-    
-    # ---- Effective reproduction number ----
-    
-    # Store incidence in this time step (including imported cases)
-    incidence[i] = length(newly_infected_id)
-    
-    # Also store serial interval for every infection
-    serial_int[[i]] = ppl[id %in% transmission_df$from, days_infected]
-    
-    # ---- Hospital metrics ----
-    
-    # Number of people currently in hospital and ICU
-    #
-    # NOTE: Metrics for which a person is only counted once (eg admissions) are handled in update_state
-    m = update_output(m, p, i, "hospital_beds", ppl[care_state %in% c("hospital", "rehosp"), ])
-    m = update_output(m, p, i, "icu_beds",      ppl[care_state == "icu", ])
+    # Count incidence and serial intervals for all new infections
+    list[m, epi_stats] = fn_incidence(m, p, ppl, epi_stats, id, i)
     
     # ---- Testing, diagnosis, and isolation ----
     
     # Determine test and diagnosis probability for newly symptomatic people
-    ppl = fn_test_diagnose(p, ppl, i)
-    
-    # Store total number of those diagnosed this time step
-    m = update_output(m, p, i, "confirmed", ppl[diagnosis_date == i, ])
+    list[m, ppl] = fn_test_diagnose(m, p, ppl, i)
     
     # Isolate newly diagnosed individuals where appropriate
-    ppl = fn_isolate(p, ppl, i)
+    list[m, ppl] = fn_isolate(m, p, ppl, i)
     
-    # ---- Vaccination ----
+    # ---- Vaccination, PrEP, and treatment ----
     
     # Vaccinate eligible priority groups according
-    ppl = fn_vaccinate(p, ppl, i, n_priority_group)
-    
-    # Handle all vaccine-related metrics (there are a few!) in seperate function for readability
-    list[m, cost_units] = fn_vaccine_count(m, p, ppl, i, cost_units)
-    
-    # ---- PrEP ----
+    list[m, ppl, cost_units] = fn_vaccinate(m, p, ppl, i, n_priority_group, cost_units)
     
     # Pre-exposure prophylaxis for those eligible
-    ppl = fn_prep(p, ppl, i)
-    
-    # Number vaccinated total and historically
-    prep_today = ppl[days_prep == 0, ]
-    prep_total = ppl[days_prep >= 0, ]
-    
-    # Store the number of people who have received PrEP (today and in total)
-    m = update_output(m, p, i, "n_prep",     prep_today)
-    m = update_output(m, p, i, "total_prep", prep_total)
-    
-    # Total number of people eligible for PrEP (used as denominator)
-    prep_elig = ppl[vax_unsuitable == TRUE, ]
-    
-    # PrEP coverage, using both those eligible and total pop as the denominator
-    m = update_output(m, p, i, "prep_coverage",     prep_total, denom = prep_elig)
-    m = update_output(m, p, i, "prep_coverage_pop", prep_total, denom = ppl)
-    
-    # Update number of vaccine doses in intervention unit counter
-    cost_units$prep[i] = prep_today[, .N]
-    
-    # ---- Treatment ----
+    list[m, ppl, cost_units] = fn_prep(m, p, ppl, i, cost_units)
     
     # Treat eligible infected cases
-    list[ppl, treat_id] = fn_treatment(p, ppl, i)
+    list[m, ppl, cost_units] = fn_treatment(m, p, ppl, i, cost_units)
     
-    # Store total number of people treated this time step
-    m = update_output(m, p, i, "n_treat",     ppl[treat_id$total, ])
-    m = update_output(m, p, i, "total_treat", ppl[treat_id$total, ]) # Cum-summed in format_output
+    # ---- Epidemiological and population updates ----
     
-    # Also store the subset that had successful treatment
-    m = update_output(m, p, i, "n_treat_success",     ppl[treat_id$success, ])
-    m = update_output(m, p, i, "total_treat_success", ppl[treat_id$success, ]) # Cum-summed in format_output
-    
-    # Update number of vaccine doses in intervention unit counter
-    cost_units$treatment[i] = length(treat_id$total)
-    
-    # ---- Epidemiological updates ----
-    
-    # Move one day closer to next 'event' (see model_flow config file for details)
-    ppl[!is.na(days_next_event), days_next_event := days_next_event - 1]
-    
-    # Sanity check: throw an error if days to next event has become negative
-    if (ppl[!is.na(days_next_event) & days_next_event < 0, .N] > 0)
-      stop("Model error: negative days until next event")
-    
-    # Update disease and care state then sample duration of next phase
-    list[ppl, m, cost_units] = update_state(p, ppl, i, m = m, cost_units = cost_units)
-    
-    # Increment the number of days infected and infectious, or recovered
-    ppl[!is.na(days_infected),   days_infected   := days_infected   + 1]
-    ppl[!is.na(days_infectious), days_infectious := days_infectious + 1]
-    
-    # Update viral load in next time step for all infected people
-    ppl = fn_viral_load(p, ppl)
-    
-    # Also increment the number of days since recovery and/or vaccination
-    ppl[!is.na(days_recovered),  days_recovered  := days_recovered  + 1]
-    ppl[!is.na(days_vaccinated), days_vaccinated := days_vaccinated + 1]
-    ppl[!is.na(days_booster),    days_booster    := days_booster    + 1]
-    ppl[!is.na(days_prep),       days_prep       := days_prep       + 1]
-    
-    # Calculate number in each disease and care state
-    for (state in p$model_states$disease) states[[state]][i] = length(ppl[disease_state == state, id])
-    for (state in p$model_states$care)    states[[state]][i] = length(ppl[care_state    == state, id])
-    
-    # ---- Population updates ----
+    # Update disease progression for the next time step and count disease states
+    list[m, ppl, cost_units, states] = fn_epi_update(m, p, ppl, i, cost_units, states)
     
     # Non-COVID-related 'natural' deaths
     list[m, ppl] = fn_natural_death(m, p, ppl, i)
@@ -382,7 +167,8 @@ model = function(o, scenario, seed = NA, fit = NULL, uncert = NULL, do_plot = FA
   m = health_economics(m, p, cost_units)
   
   # Calculate effective reproduction number from incidence and serial interval
-  Re_info = calculate_Re(incidence, unlist(serial_int), p$Re_window)
+  si = unlist(epi_stats$serial_int)
+  Re_info = calculate_Re(epi_stats$incidence, si, p$Re_window)
   
   # Prepare final model output
   results = format_output(m, p, Re_info, network, ppl, yaml, seed)
@@ -943,9 +729,114 @@ health_economics = function(m, p, cost_units) {
 }
 
 # ---------------------------------------------------------
-# Calculate infected-susceptible exposures 
+# Calculate basic epidemiological indicators
 # ---------------------------------------------------------
-fn_exposures = function(p, network, all_infecting, all_susceptible, date_idx) {
+fn_epi_stats = function(m, p, ppl, epi_stats, date_idx) {
+  
+  # Total number of people currently infected and infectious
+  all_infected   = ppl[days_infected > 0, id]
+  all_infectious = ppl[days_infectious > 0, id]  # Including those in isolation
+  
+  # Easy access total number of people currently infected
+  n_infected = length(all_infected)
+  
+  # Store total number of people infected and infectious
+  m = update_output(m, p, date_idx, "currently_infected",   ppl[all_infected, ])
+  m = update_output(m, p, date_idx, "currently_infectious", ppl[all_infectious, ])
+  
+  # Total number of people currently in isolation
+  currently_isolated = ppl[care_state %in% "iso", id]
+  m = update_output(m, p, date_idx, "currently_isolated", ppl[currently_isolated, ])
+  
+  # All infectious individuals not in isolation - these contributing to new infections
+  epi_stats$all_infecting = setdiff(all_infectious, currently_isolated)
+  
+  # Total number of people currently infected with symptoms (mild, severe, or critical)
+  currently_symptomatic = ppl[disease_state %in% c("mild", "severe", "crit"), id]
+  m = update_output(m, p, date_idx, "currently_symptomatic", ppl[currently_symptomatic, ])
+  
+  # All susceptible people and their level of immunity (from previous infection and/or vaccination)
+  epi_stats$all_susceptible      = ppl[disease_state == "susc", id]
+  epi_stats$susceptible_immunity = ppl[epi_stats$all_susceptible, immune_state]
+  
+  # For population susceptibility, weight by immunity state and sum
+  pop_susceptibility = 100 * sum(1 - epi_stats$susceptible_immunity) / p$population_size
+  m = update_output(m, p, date_idx, "pop_susceptibility", pop_susceptibility)
+  
+  # Prevalence across whole population (proportion currently infected)
+  pop_prevalence = 100 * n_infected / p$population_size
+  m = update_output(m, p, date_idx, "pop_prevalence", pop_prevalence)
+  
+  # Sero-prevalence across whole population (proportion that have been infected thus far)
+  pop_seroprevalence = 100 * ppl[num_infections > 0, .N] / p$population_size
+  m = update_output(m, p, date_idx, "seroprevalence", pop_seroprevalence)
+  
+  # Virus variant of each infected individual
+  all_variants = factor(ppl[all_infected, variant], levels = p$variants$id)
+  m = update_output(m, p, date_idx, "variant_prevalence", ppl[all_infected, ])
+  
+  # Store variant prevalence as simple unnamed vector for use when importing cases
+  if (n_infected > 0) {
+    epi_stats$variant_prevalence = as.numeric(table(all_variants) / n_infected)
+    
+  } else {  # Deal with edge case of no new infections
+    epi_stats$variant_prevalence = c(1, rep(0, nrow(p$variants) - 1))
+  }
+  
+  return(list(m, epi_stats))
+}
+
+# ---------------------------------------------------------
+# Update disease progression for the next time step
+# ---------------------------------------------------------
+fn_epi_update = function(m, p, ppl, date_idx, cost_units, states) {
+  
+  # Move one day closer to next 'event' (see model_flow config file for details)
+  ppl[!is.na(days_next_event), days_next_event := days_next_event - 1]
+  
+  # Sanity check: throw an error if days to next event has become negative
+  if (ppl[!is.na(days_next_event) & days_next_event < 0, .N] > 0)
+    stop("Model error: negative days until next event")
+  
+  # Count number of people currently in hospital and ICU before updating states
+  #
+  # NOTE: Metrics for which a person is only counted once (eg admissions) are handled in update_state
+  m = update_output(m, p, date_idx, "hospital_beds", ppl[care_state %in% c("hospital", "rehosp"), ])
+  m = update_output(m, p, date_idx, "icu_beds",      ppl[care_state == "icu", ])
+  
+  # Update disease and care state then sample duration of next phase
+  list[ppl, m, cost_units] = update_state(p, ppl, date_idx, m = m, cost_units = cost_units)
+  
+  # Increment the number of days infected and infectious, or recovered
+  ppl[!is.na(days_infected),   days_infected   := days_infected   + 1]
+  ppl[!is.na(days_infectious), days_infectious := days_infectious + 1]
+  
+  # Update viral load in next time step for all infected people
+  ppl = fn_viral_load(p, ppl)
+  
+  # Also increment the number of days since recovery and/or vaccination
+  ppl[!is.na(days_recovered),  days_recovered  := days_recovered  + 1]
+  ppl[!is.na(days_vaccinated), days_vaccinated := days_vaccinated + 1]
+  ppl[!is.na(days_booster),    days_booster    := days_booster    + 1]
+  ppl[!is.na(days_prep),       days_prep       := days_prep       + 1]
+  
+  # Calculate number in each disease state
+  for (state in p$model_states$disease)
+    states[[state]][date_idx] = length(ppl[disease_state == state, id])
+  
+  # Calculate number in each care state
+  for (state in p$model_states$care)
+    states[[state]][date_idx] = length(ppl[care_state == state, id])
+  
+  return(list(m, ppl, cost_units, states))
+}
+
+# ---------------------------------------------------------
+# Calculate new local infections
+# ---------------------------------------------------------
+fn_transmission = function(m, p, ppl, network, epi_stats, date_idx) {
+  
+  # ---- Sample contacts considering NPIs ----
   
   # NPI effect on at this time step
   npi_effect = p$npi_contact_reduction[date_idx]
@@ -963,25 +854,161 @@ fn_exposures = function(p, network, all_infecting, all_susceptible, date_idx) {
                                      prob = rep(1, n_contacts))
     
     # All infected-susceptible 
-    exposures = network[effective_idx][from %in% all_infecting & to %in% all_susceptible]
+    exposures = network[effective_idx][from %in% epi_stats$all_infecting & 
+                                         to %in% epi_stats$all_susceptible]
     
   } else {  # No sampling needed if there is no NPI effect
-    exposures = network[from %in% all_infecting & to %in% all_susceptible]
+    exposures = network[from %in% epi_stats$all_infecting & 
+                          to %in% epi_stats$all_susceptible]
   }
   
-  # Alternative approach with dplyr... (moved to data.table to attempt speed up)
+  # ---- Per-contact transmission probability ----
   
-  # All contacts between infectious ('from') and susceptible ('to') people 
+  # Variant index of infectious individuals (can impact both infectiousness and susceptibility)
+  variant_idx = match(ppl[exposures$from, variant], p$variants$id)
+  
+  # Infectiouness is a multiplier of viral load, seasonality, and viral variant
+  beta = ppl[exposures$from, viral_load] * 
+    p$beta * 
+    p$seasonality[date_idx] * 
+    p$air_pollution_factor$susceptibility * 
+    p$variants$infectivity[variant_idx]
+  
+  # Calculate immunity for each exposure (depends on variant exposed to)
+  list[ppl, exposures] = fn_immunity_infection(p, ppl, epi_stats$variant_prevalence, exposures)
+  
+  # ---- Sample random numbers to determine transmission ----
+  
+  # Draw random numbers to determine which contacts lead to transmission
+  transmission_df = exposures %>% 
+    mutate(probability = pmin(beta * (1 - immunity), 1),  # Probability of transmission in each contact
+           rand = runif(n()), 
+           transmission = rand < probability) %>% 
+    filter(transmission == TRUE) %>%  # Only interested in transmission events
+    group_by(to) %>%  # Uniqueness then guaranteed
+    summarise(from = first(from)) %>%  # Only consider first transmission if multiple
+    ungroup() %>%
+    mutate(variant = ppl[from, variant]) %>%  # Variant is passed down from infector
+    setDT()
+  
+  # NOTE: If desirable, we could here store number of people infected by each individual - could 
+  #       be useful if looking at the effects on removing key individuals from transmission chain
+  
+  # Extract the IDs and variants of new local transmissions
+  local_id    = transmission_df$to 
+  infector_id = transmission_df$from
+  
+  # Begin infections for these people
+  ppl = fn_begin_infection(p, ppl, local_id, transmission_df$variant)
+  
+  # Store number of new local infections among susceptibles
+  m = update_output(m, p, date_idx, "new_local_infections", ppl[local_id, ])
+  
+  # Output IDs of newly infected as a list
+  id = list(local = local_id, infector = infector_id)
+  
+  return(list(m, ppl, id))
+}
+
+# ---------------------------------------------------------
+# Import infections acquired elsewhere
+# ---------------------------------------------------------
+fn_importation = function(m, p, ppl, epi_stats, id, date_idx) {
+  
+  # Number of infection imports this time step
   #
-  # NOTES: 
-  #  1) We remove all contacts with isolated people (ie assume they are actually isolating)
-  #  2) The slicing here is a basic implementation of social distancing - remove edges at random
-  # exposures = network %>%
-  #   slice_sample(prop = 1 - p$npi_contact_reduction[i]) %>%
-  #   filter(from %in% all_infecting, 
-  #          to   %in% all_susceptible)
+  # NOTE: Rounding up here as we always want at least 1 and sample_vec rounds down by default
+  n_imports = ceiling(p$import_constant * length(epi_stats$all_susceptible))
   
-  return(exposures)
+  # Sample indices - random for now, but may want to consider other factors later
+  id$import = sample_vec(x    = epi_stats$all_susceptible, 
+                         size = n_imports, 
+                         prob = 1 - epi_stats$susceptible_immunity)
+  
+  # Select virus variants for these individuals based on the proportion currently in circulation
+  apply_variant = sample_vec(x    = p$variants$id, 
+                             size = n_imports, 
+                             prob = epi_stats$variant_prevalence, 
+                             replace = TRUE)
+  
+  # Begin infections for these people
+  ppl = fn_begin_infection(p, ppl, id$import, apply_variant)
+  
+  # Store number of new imported infections
+  m = update_output(m, p, date_idx, "new_importations", ppl[id$import, ])
+  
+  return(list(m, ppl, id))
+}
+
+# ---------------------------------------------------------
+# New viral variant emergence
+# ---------------------------------------------------------
+fn_emergence = function(m, p, ppl, epi_stats, id, date_idx) {
+  
+  # All newly infected people (including imports) we could use to initiate new mutation
+  newly_infected_id = c(id$local, id$import)
+  
+  # Check whether any variants are due to be imported in this time step
+  if (date_idx %in% p$variants$import_day) {
+    
+    # Details of the variant to be imported
+    this_variant = p$variants[p$variants$import_day == date_idx, ]
+    
+    # Do we have enough new infections to assign the new variant to
+    n_imports_remain = max(0, this_variant$import_number - length(newly_infected_id))
+    
+    # Deal with case where we need to introduce elsewhere
+    if (n_imports_remain > 0) {
+      
+      # Can reassign variant for the already infected OR force infect susceptibles - we do the latter
+      newly_forced_id = sample_vec(x    = epi_stats$all_susceptible, 
+                                   size = n_imports_remain, 
+                                   prob = 1 - susceptible_immunity)
+      
+      # Begin infections for these people
+      ppl = fn_begin_infection(p, ppl, newly_forced_id, this_variant$id)
+      
+      # Extend the people we can choose from to 'reassign' the new variant to
+      newly_infected_id = c(newly_infected_id, newly_forced_id)
+    }
+    
+    # Sample this many people from those recently infected 
+    id$new_variant = sample_vec(newly_infected_id, this_variant$import_number)
+    
+    # Assign the new mutation variant to these individuals
+    ppl[id$new_variant, variant := this_variant$id]
+    
+  } else { # No viral emergence on this day...
+    
+    # Output trivial IDs
+    id$new_variant = integer(0)
+  }
+  
+  return(list(m, ppl, id))
+}
+
+# ---------------------------------------------------------
+# Count incidence and serial intervals for all new infections
+# ---------------------------------------------------------
+fn_incidence = function(m, p, ppl, epi_stats, id, date_idx) {
+  
+  # All newly infected people (including all imports)
+  all_new_infections = c(id$local, id$import, id$new_variant)
+  new_infections     = c(id$local, id$import)
+  
+  # Store total number of new infections
+  m = update_output(m, p, date_idx, "all_new_infections", ppl[all_new_infections, ])
+  
+  # Store incidence in this time step (including imported cases)
+  epi_stats$incidence[date_idx] = length(new_infections)
+  
+  # IDs of those who infected others in this time step
+  infector_id = id$infector
+  
+  # Calculate serial interval for each of these infector individuals
+  epi_stats$serial_int[[date_idx]] = ppl[id %in% infector_id, days_infected]
+  
+  return(list(m, epi_stats))
 }
 
 # ---------------------------------------------------------
@@ -1035,7 +1062,8 @@ fn_prognosis = function(p, new_infected) {
               by = "id") %>%
     left_join(y  = p$prognosis$severity,  # Variant and dose/exposure effect
               by = c("variant", "vaccine_doses", "num_infections")) %>%
-    mutate(value = value * (1 - disease_blocking)) %>%
+    mutate(value = value * p$air_pollution_factor$severity,   # Air pollution effect
+           value = value * (1 - disease_blocking)) %>%
     select(id, state, value)
   
   # Mulitply severity factors by baseline age-related prognosis probabilities
@@ -1073,7 +1101,7 @@ fn_prognosis = function(p, new_infected) {
 # ---------------------------------------------------------
 # Which infected people will get tested AND diagnosed, and when
 # ---------------------------------------------------------
-fn_test_diagnose = function(p, ppl, date_idx) {
+fn_test_diagnose = function(m, p, ppl, date_idx) {
   
   # ---- Regular testing ----
   
@@ -1143,13 +1171,16 @@ fn_test_diagnose = function(p, ppl, date_idx) {
   # Remove reference to all expired test dates
   ppl[test_date <= date_idx, test_date := NA]
   
-  return(ppl)
+  # Store total number of those diagnosed this time step
+  m = update_output(m, p, date_idx, "confirmed", ppl[diagnosis_date == date_idx, ])
+  
+  return(list(m, ppl))
 }
 
 # ---------------------------------------------------------
 # Isolate newly diagnosed individuals where appropriate
 # ---------------------------------------------------------
-fn_isolate = function(p, ppl, date_idx) {
+fn_isolate = function(m, p, ppl, date_idx) {
   
   # Once diagnosed, only those with certain prognoses can go into isolation (see model_flows)
   #
@@ -1165,13 +1196,13 @@ fn_isolate = function(p, ppl, date_idx) {
   ppl[isolate_id, care_state := "iso"]
   ppl[isolate_id, days_next_event := round(p$isolation$duration)]
   
-  return(ppl)
+  return(list(m, ppl))
 }
 
 # ---------------------------------------------------------
 # Vaccinate eligible people
 # ---------------------------------------------------------
-fn_vaccinate = function(p, ppl, date_idx, n_priority_group) {
+fn_vaccinate = function(m, p, ppl, date_idx, n_priority_group, cost_units) {
   
   # Extract vaccine type currently being distributed
   current_vaccine = p$vaccine_update %>%
@@ -1274,7 +1305,10 @@ fn_vaccinate = function(p, ppl, date_idx, n_priority_group) {
   # Stop counting when we get up to max_dose_count
   ppl[, vaccine_doses := pmin(vaccine_doses, p$max_dose_count)]
   
-  return(ppl)
+  # Handle all vaccine-related metrics (there are a few!) in seperate function for readability
+  list[m, cost_units] = fn_vaccine_count(m, p, ppl, date_idx, cost_units)
+  
+  return(list(m, ppl, cost_units))
 }
 
 # ---------------------------------------------------------
@@ -1331,7 +1365,9 @@ fn_vaccine_count = function(m, p, ppl, date_idx, cost_units) {
 # ---------------------------------------------------------
 # Pre-exposure prophylaxis for those eligible
 # ---------------------------------------------------------
-fn_prep = function(p, ppl, date_idx) {
+fn_prep = function(m, p, ppl, date_idx, cost_units) {
+  
+  # ---- Distribute PrEP as appropriate ----
   
   # All those eligible that have and haven't yet received PrEP
   prep_yes = ppl[vax_unsuitable == TRUE & !is.na(days_prep), ]
@@ -1352,13 +1388,35 @@ fn_prep = function(p, ppl, date_idx) {
   # Start these people off on their PrEP journey
   ppl[prep_id, days_prep := 0]
   
-  return(ppl)
+  # ---- Store details ----
+  
+  # Number vaccinated total and historically
+  prep_today = ppl[days_prep == 0, ]
+  prep_total = ppl[days_prep >= 0, ]
+  
+  # Store the number of people who have received PrEP (today and in total)
+  m = update_output(m, p, date_idx, "n_prep",     prep_today)
+  m = update_output(m, p, date_idx, "total_prep", prep_total)
+  
+  # Total number of people eligible for PrEP (used as denominator)
+  prep_elig = ppl[vax_unsuitable == TRUE, ]
+  
+  # PrEP coverage, using both those eligible and total pop as the denominator
+  m = update_output(m, p, date_idx, "prep_coverage",     prep_total, denom = prep_elig)
+  m = update_output(m, p, date_idx, "prep_coverage_pop", prep_total, denom = ppl)
+  
+  # Update number of vaccine doses in intervention unit counter
+  cost_units$prep[date_idx] = prep_today[, .N]
+  
+  return(list(m, ppl, cost_units))
 }
 
 # ---------------------------------------------------------
 # Treat eligible infected cases
 # ---------------------------------------------------------
-fn_treatment = function(p, ppl, date_idx) {
+fn_treatment = function(m, p, ppl, date_idx, cost_units) {
+  
+  # ---- Treat infected individuals as appropriate ----
   
   # Extract people who could be due treatment today
   treat_elig = ppl %>%
@@ -1388,9 +1446,6 @@ fn_treatment = function(p, ppl, date_idx) {
   success_id = treat_df[rand < treat_success, id]
   total_id   = treat_df[rand < treat_prob, id]
   
-  # Store these IDs for output
-  treat_id = list(total = total_id, success = success_id)
-  
   # Assign current date index to treatment_date for only those successful
   ppl[success_id, treatment_date := date_idx]
   
@@ -1402,7 +1457,20 @@ fn_treatment = function(p, ppl, date_idx) {
   # ... which is just about to recover
   ppl[success_id, days_next_event := 1]
   
-  return(list(ppl, treat_id))
+  # ---- Store details ----
+  
+  # Store total number of people treated this time step
+  m = update_output(m, p, date_idx, "n_treat",     ppl[total_id, ])
+  m = update_output(m, p, date_idx, "total_treat", ppl[total_id, ]) # Cum-summed in format_output
+  
+  # Also store the subset that had successful treatment
+  m = update_output(m, p, date_idx, "n_treat_success",     ppl[success_id, ])
+  m = update_output(m, p, date_idx, "total_treat_success", ppl[success_id, ]) # Cum-summed in format_output
+  
+  # Update number of vaccine doses in intervention unit counter
+  cost_units$treatment[date_idx] = length(total_id)
+  
+  return(list(m, ppl, cost_units))
 }
 
 # ---------------------------------------------------------

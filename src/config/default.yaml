@@ -29,6 +29,21 @@ seasonality_scaler: 0.3
 # Number of days to shift seasonality start
 seasonality_shift: 120  # 0 represents mid-winter
 
+# ---- Air pollution factors ----
+
+# Increase in pollutant per m^3 of air
+air_pollution_exposure: 0
+
+# Increase in susceptibility/severity per microgram / m^3 of air polutant
+#
+# SOURCES: xxx
+air_pollution:
+  susceptibility: 1.0  # Increase in susceptibility per microgram / m^3 of air polutant
+  severity: 1.0        # Increase in severity per microgram / m^3 of air polutant
+  
+# Relationship between pollution exposure and susceptibility/severity
+air_pollution_relationship: "linear"  # OPTIONS: 'linear', 'log' or 'log10'
+
 # ---- Effective reproduction number ----
 
 # Effective reproduction number at analysis start
@@ -202,7 +217,7 @@ max_dose_count: 10
 # ---- PrEP details ----
 
 # Pre-exposure prophylaxis immunity profile
-prep_defintion:
+prep_definition:
   name: "Monoclonal-antibody PrEP"
   infection_blocking: 0.0  # TODO: Not yet implemented (may not even need it)
   efficacy:

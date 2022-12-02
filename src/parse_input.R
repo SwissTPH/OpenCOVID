@@ -166,6 +166,38 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   # Remove redundant items
   y[c("seasonality_fn", "seasonality_scaler", "seasonality_shift")] = NULL
   
+  # ---- Air quality ----
+  
+  # Initiate list of air pollution factors
+  y$air_pollution_factor = list()
+
+  # Don't allow improving air quality for now - can address later if needed  
+  if (y$air_pollution_exposure < 0)
+    stop("Parameter 'air_pollution_exposure' not yet able to handle negative numbers")
+  
+  # Loop through potential effects of air pollution
+  for (air_effect in names(y$air_pollution)) {
+    
+    # Linear increase in susceptibility due to worsening air quality
+    effect_increase = y$air_pollution[[air_effect]] - 1
+    effect_factor   = 1 + y$air_pollution_exposure * effect_increase
+    
+    # Switch case dependent on choice of air_pollution_relationship
+    y$air_pollution_factor[[air_effect]] = 
+      switch(y$air_pollution_relationship, 
+             
+             # Relationship can be linear or logged
+             "linear" = effect_factor,
+             "log"    = 1 + log(effect_factor), 
+             "log10"  = 1 + log10(effect_factor),
+             
+             # Throw an error if choice is not recognised
+             stop("Value of 'air_pollution_relationship' not recognised"))
+  }
+  
+  # Remove redundant items
+  # y[c("air_pollution", "air_pollution_exposure")] = NULL
+  
   # ---- Viral variants ----
   
   # Initiate primary variant - infectivity & severity always relevant to this
@@ -518,10 +550,10 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
   # ---- PrEP ----
   
   # Initiate a new list containing key PrEP details
-  y$prep = y$prep_defintion[qc(name, infection_blocking)]
+  y$prep = y$prep_definition[qc(name, infection_blocking)]
   
   # Evaluate the PrEP efficacy over all possible time points
-  y$prep$profile = parse_fn(fn_args = y$prep_defintion$efficacy, 
+  y$prep$profile = parse_fn(fn_args = y$prep_definition$efficacy, 
                             along   = list(x = 1 : n_days_total))
   
   # PrEP rollout feature is still pretty basic - this will change in future versions
@@ -548,7 +580,7 @@ parse_yaml = function(o, scenario, fit = NULL, uncert = NULL, read_array = FALSE
     y$prep$coverage[max(growth_idx) : y$n_days] = y$prep_rollout$coverage
   
   # Remove redundant items from y
-  y[c("prep_defintion", "prep_rollout")] = NULL
+  y[c("prep_definition", "prep_rollout")] = NULL
   
   # ---- Treatment ----
   

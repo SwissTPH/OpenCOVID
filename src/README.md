@@ -2,7 +2,7 @@
 
 An individual-based model of SARS-CoV-2 transmission and COVID-19 disease dynamics developed at the Swiss Tropical and Public Health institute (Swiss TPH). A stochastic, discrete-time, setting-agnostic model with age, risk-group, contact network, waning immunity, and viral variant structure. Numerous interventions can be simulated, including vaccination (plus booster doses), pre-exposure prophylaxis, testing and diagnosis, treatment, isolation, and non-pharmaceutical interventions (such as physical distancing policies of varying intensities).
 
-#### Version 4.2 (beta) (stable with R version 4.1)
+#### Version 4.2 (alpha) (stable with R version 4.1)
 
 ## The repository
 
