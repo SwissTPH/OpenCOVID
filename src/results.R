@@ -310,6 +310,10 @@ run_results = function(o) {
   
   # ---- Custom figures ----
   
+  # Plot air pollution manuscript figures (CROI conference 2023)
+  if (o$plot_manuscript == TRUE)
+    manuscript_figures(o)
+  
   # Also plot custom results defined within my_results.R (if it exists)
   if (o$plot_custom == TRUE && file.exists("my_results.R"))
     my_results(o)

@@ -223,6 +223,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$plot_calibration = TRUE  # Calibration performance and diagnostics
   
   # Flags for custom figures
+  o$plot_manuscript  = TRUE  # Run manuscript figures
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)
   
   # ---- Override options ----

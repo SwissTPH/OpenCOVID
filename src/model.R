@@ -973,10 +973,13 @@ fn_emergence = function(m, p, ppl, epi_stats, id, date_idx) {
     }
     
     # Sample this many people from those recently infected 
-    id$new_variant = sample_vec(newly_infected_id, this_variant$import_number)
+    id_new_variant = sample_vec(newly_infected_id, this_variant$import_number)
     
     # Assign the new mutation variant to these individuals
-    ppl[id$new_variant, variant := this_variant$id]
+    ppl[id_new_variant, variant := this_variant$id]
+    
+    # Store these IDs
+    id$new_variant = id_new_variant
     
   } else { # No viral emergence on this day...
     

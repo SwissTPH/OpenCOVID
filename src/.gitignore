@@ -11,4 +11,5 @@ log/
 cache/
 input/*
 !input/demo.yaml
+!input/air_pollution.yaml
 output/

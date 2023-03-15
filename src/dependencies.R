@@ -47,6 +47,7 @@ source("cluster_jobs.R")
 source("postprocess.R")
 source("results.R")
 source("plotting.R")
+source("manuscript.R")
 source("unit_tests.R")
 
 # Also load my_results if it exists

@@ -77,6 +77,10 @@ aggregate_results = function(input, raw_output) {
     ungroup() %>%
     setDT()
   
+  # Return out earlier if no groupings
+  if (nrow(first_grouping) == 0)
+    return(raw_output)
+  
   # Aggregate values of first grouping
   agg_df = first_grouping %>%
     left_join(raw_output,

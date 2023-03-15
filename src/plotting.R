@@ -2849,53 +2849,93 @@ plot_seasonality_profile = function(o, fig_name, ..., labels = NULL, colours = N
 # ---------------------------------------------------------
 # Plot all options for air pollution - susceptibility relationship
 # ---------------------------------------------------------
-plot_pollution_relationships = function(o, fig_name, model_input) {
+plot_pollution_relationships = function(o, fig_name, pollution_factors) {
   
   # Air pollution levels to evaluate
-  x_values = 1 : 20
+  pollution_levels = 0 : 5
   
-  # Linear increase in susceptibility due to worsening air quality
-  sus_increase = (model_input$air_pollution$susceptibility - 1)
-  y_values     = 1 + x_values * sus_increase
+  # Assocaited labels for x axis
+  pollution_labels = paste0("+", pollution_levels, "ug/m3")
   
-  # Transform as appropriate
-  values_df = data.table(linear = y_values, 
-                         log    = 1 + log(y_values), 
-                         log10  = 1 + log10(y_values))
+  # Dictionary for type pollution-susceptibility/severity relationship
+  relationship_dict = c(log10  = "Log10 increase in effect", 
+                        linear = "Linear increase in effect")
+  
+  # Dictionary for type of air pollution 'effect'
+  effect_dict = c(susceptibility = "Effect on susceptibility", 
+                  severity       = "Effect on severity")
+  
+  # Set manual colour scheme
+  colours = c("red1", "dodgerblue1")
+  
+  # Set legend titles
+  legend_relationship = "Pollution-effect relationship"
+  legend_effect       = "Mechanism of air pollution effect"
+  
+  # ---- Construct plotting dataframes ----
+  
+  # Initiate plot list
+  plot_list = list()
+  
+  # Iterate through air pollution factors
+  for (factor in names(pollution_factors)) {
+    
+    # Effect due to worsening air quality
+    effect   = pollution_factors[[factor]] - 1
+    y_values = 1 + pollution_levels * effect
+    
+    # Transform as appropriate
+    plot_list[[factor]] = 
+      data.table(linear = y_values, 
+                 log10  = 1 + log10(y_values), 
+                 effect = factor)
+  }
   
   # Construct plotting dataframe
-  plot_df = values_df %>%
-    mutate(x = x_values) %>%
-    pivot_longer(cols     = -x, 
+  plot_df = rbindlist(plot_list) %>%
+    mutate(x = rep(pollution_levels, length(pollution_factors))) %>%
+    pivot_longer(cols     = c("linear", "log10"), 
                  names_to = "relationship") %>%
-    mutate(relationship = fct_inorder(relationship)) %>%
-    arrange(relationship) %>%
+    unite("group", effect, relationship, remove = FALSE) %>%
+    select(x, y = value, effect, relationship, group) %>%
+    mutate(relationship = recode(relationship, !!!relationship_dict), 
+           effect       = recode(effect,       !!!effect_dict)) %>%
+    mutate(relationship = factor(relationship, relationship_dict), 
+           effect       = factor(effect,       effect_dict)) %>%
+    arrange(effect, relationship) %>% 
     setDT()
   
-  # Plot the curves for all relationships
-  g = ggplot(plot_df, aes(x = x, y = value, colour = relationship)) + 
-    geom_line(size = 2)
+  # ---- Produce plot ----
   
-  # Plot reference line for air pollution level modelled in this scenario
-  g = g + geom_vline(xintercept = model_input$air_pollution_exposure, 
-                     linetype   = "dashed")
+  # Plot the curves for all relationships
+  g = ggplot(plot_df, aes(x = x, y = y, 
+                          colour   = effect, 
+                          linetype = relationship)) + 
+    geom_line(size = 2) +
+    facet_wrap(~effect)
   
   # Add plot title and axes labels
-  g = g + ggtitle("Air pollution-susceptibility relationship assumptions") +
-    xlab("Increase in air pollution") +
-    ylab("Increase in susceptibility per SARS-CoV-2 exposure")
+  g = g + ggtitle("Air pollution relationship assumptions") +
+    xlab("Increase in air pollution") + ylab("Effect multiplier")
   
-  # Prettify axes
-  g = g + 
+  # Apply colour scheme and prettify axes
+  g = g + scale_colour_manual(values = colours) + 
     scale_y_continuous(limits = c(1, NA), 
                        expand = expansion(mult = c(0, 0.05))) + 
-    scale_x_continuous(expand = expansion(mult = c(0, 0)))
+    scale_x_continuous(labels = pollution_labels, 
+                       expand = expansion(mult = c(0, 0)))
+  
+  # Prettify legend
+  g = g + guides(colour   = guide_legend(title = legend_effect), 
+                 linetype = guide_legend(title = legend_relationship))
   
   # Prettify theme
   g = g + theme_classic() + 
     theme(plot.title    = element_text(size = 28, hjust = 0.5),
+          strip.text    = element_text(size = 20),
           axis.title    = element_text(size = 24),
           axis.text     = element_text(size = 14),
+          axis.text.x   = element_text(hjust = 1, angle = 50), 
           axis.line     = element_blank(),
           panel.border  = element_rect(size = 1, colour = "black", fill = NA),
           panel.spacing = unit(1, "lines"),

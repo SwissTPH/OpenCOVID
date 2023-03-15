@@ -1,0 +1,432 @@
+---
+
+# OpenCOVID analysis file for air pollution study
+  
+# ---- Baseline settings ----
+        
+# Number of people to simulate
+population_size: 1000000
+
+# ---- Initialisation settings ----
+
+# Number of days over which these past infections have occured
+n_days_init: -1095  # 3 years
+
+# Number of days to simulate
+n_days: 744 # 2 years + 14 days of equilibration at the start of the simulation
+
+# Proportion of population previously infected
+previously_infected: 0.98
+
+# ---- Calibration options ----
+
+# Emulator options
+emulator:
+  init_samples: 200       # Initial number of paramter sets
+  seeds: 4                # Number of stochastic runs per sample
+  
+# Adaptive sampling options
+#
+# NOTE: Adaptive sampling is very useful for fitting to epi_data - not so much for Re
+adaptive_sampling:
+  rounds: 0              # Number of rounds (set to 0 to turn adaptive sampling off)
+
+# ---- Fitting options ----
+
+# Initiate future at some effective reproduction number
+Re: 0.9
+
+# Number of days to shift seasonality start
+seasonality_shift: 135  # 0 represents peak winter
+
+# Seasonality conditions (sample from normal distribution)
+seasonality_scaler:
+  uncertainty:
+    fn: "norm"  # Options: unif (min, max), norm (mean, sd), pois (lambda)
+    mean: 0.3
+    sd: 0.04
+
+# ---- Air pollution options ----  
+
+# Units (microgram/m^3) of increase in air pollutant exposure
+air_pollution_exposure: 0
+
+# Relationship between pollution exposure and susceptibility/severity
+air_pollution_relationship: "log10"
+
+# ---- Priority and risk groups ----
+
+# Priority group definitions
+priority_groups: 
+- id: high_priority
+  name: "65+ or comorbidities"
+  priority: 1
+  condition: "age >= 65 | comorbidities == TRUE"
+- id: low_priority
+  name: "5-65 year olds"
+  priority: 2
+  condition: "age >= 5 & age < 65"
+  
+# Primary variant (properties relative to prognosis probabilities)
+variant_primary:
+  id: omicron
+  name: "Omicron"
+  infectivity: 14.4
+  severity: 1.54
+  immuno_escape: 0.0
+
+# Initiate novel variants
+variants_novel:
+- id: omicronplus
+  name: "Omicron BQ.1+"
+  import_day: 180
+  import_number: 10 # per 100k
+  infectivity: 1.1
+  severity: 1.0
+  immuno_escape: 0.1 # between 0 and 1
+- id: omicronplusplus
+  name: "Omicron BQ.1++"
+  import_day: 545
+  import_number: 10
+  infectivity: 1.2
+  severity: 1.0
+  immuno_escape: 0.1 # between 0 and 1
+
+# Vaccination rollout 
+vaccine_rollout: 
+- id: high_priority
+  coverage: 0.85
+  start: -545
+  end: -510
+- id: low_priority
+  coverage: 0.6
+  start: -545
+  end: -510
+  
+# Vaccine booster rollout (only groups to recieve a booster need to be specified)
+booster_rollout:
+- id: high_priority
+  probability: 0.8   # Probability of accepting/receiving a booster dose - set to zero in the baseline
+  cycle_period: 365  # Booster dose administered every cycle_period days
+  start: -365        # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+  force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
+- id: low_priority
+  probability: 0.5   # Probability of accepting/receiving a booster dose - set to zero in the baseline
+  cycle_period: 365  # Booster dose administered every cycle_period days
+  start: -365        # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+  force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
+  
+# Vaccine updates that effectively protect from exposure to all currently circulating variants
+vaccine_update:
+- id: vax_g2
+  name: "2nd generation vaccine"
+  release_day: 270
+- id: vax_g3
+  name: "3rd generation vaccine"
+  release_day: 635
+    
+# ---- Treatment details ----
+
+# Probability of treatment given diagnosis
+treat_rollout:
+- id: high_priority
+  vaccine_condition: "none"  # OPTIONS: "vaccinated", "unvaccinated", "none"
+  mild: no       # Flag for treating those with mild symptoms
+  severe: yes    # Flag for treating those with severe symptoms (in hospital)
+  crit: yes      # Flag for treating those in critical condition (in ICU)
+  coverage: 0.5  # Coverage of all those eligible (defined by mild, severe, crit flags) 53% https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8871493/
+  available: 0   # Date index of when treatment becomes available for this group
+- id: low_priority
+  vaccine_condition: "none"
+  mild: no
+  severe: yes
+  crit: yes
+  coverage: 0.0
+  available: 0
+  
+# Delay from diagnosis to treatment effect
+treat_delay: 5
+
+# Treatment efficacy: reduction in probability of hospitalisation
+treat_efficacy: 0.8
+
+# ---- PrEP details ----
+
+# Pre-exposure prophylaxis immunity profile
+prep_definition:
+  name: "Monoclonal-antibody PrEP"
+  infection_blocking: 0.0  # TODO: Not yet implemented (may not even need it)
+  efficacy:
+    fn: "logistic_inv"
+    slope: 1.8
+    mid: 180 # From nejm.org/doi/full/10.1056/NEJMoa2116620
+    lb: 0.7
+    ub: 0.98
+    
+# Pre-exposure prophylaxis coverage scale up
+prep_rollout: 
+  coverage: 0.0  # Of those of unsuitable for vaccination
+  start: 0
+  end: 0
+
+# ---- Alternative scenarios ----
+
+# Define scenarios
+scenarios:
+
+# Susceptibility log10
+- id: pollut1_log10_sus
+  name: "+1ug/m3 log10 susceptibility"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 1
+- id: pollut2_log10_sus
+  name: "+2ug/m3 log10 susceptibility"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 2
+- id: pollut3_log10_sus
+  name: "+3ug/m3 log10 susceptibility"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 3
+- id: pollut4_log10_sus
+  name: "+4ug/m3 log10 susceptibility"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 4
+- id: pollut5_log10_sus
+  name: "+5ug/m3 log10 susceptibility"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 5
+
+# Severity log10
+- id: pollut1_log10_sev
+  name: "+1ug/m3 log10 severity"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 1
+- id: pollut2_log10_sev
+  name: "+2ug/m3 log10 severity"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 2
+- id: pollut3_log10_sev
+  name: "+3ug/m3 log10 severity"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 3
+- id: pollut4_log10_sev
+  name: "+4ug/m3 log10 severity"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 4
+- id: pollut5_log10_sev
+  name: "+5ug/m3 log10 severity"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 5
+  
+# Susceptibility linear
+- id: pollut1_linear_sus
+  name: "+1ug/m3 linear susceptibility"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 1
+- id: pollut2_linear_sus
+  name: "+2ug/m3 linear susceptibility"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 2
+- id: pollut3_linear_sus
+  name: "+3ug/m3 linear susceptibility"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 3
+- id: pollut4_linear_sus
+  name: "+4ug/m3 linear susceptibility"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 4
+- id: pollut5_linear_sus
+  name: "+5ug/m3 linear susceptibility"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    susceptibility: 1.127
+  air_pollution_exposure: 5
+  
+# Severity linear
+- id: pollut1_linear_sev
+  name: "+1ug/m3 linear severity"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 1
+- id: pollut2_linear_sev
+  name: "+2ug/m3 linear severity"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 2
+- id: pollut3_linear_sev
+  name: "+3ug/m3 linear severity"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 3
+- id: pollut4_linear_sev
+  name: "+4ug/m3 linear severity"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 4
+- id: pollut5_linear_sev
+  name: "+5ug/m3 linear severity"
+  air_pollution_relationship: "linear"
+  air_pollution:
+    severity: 1.11
+  air_pollution_exposure: 5
+
+# ---- Model metrics ----
+    
+# Define model metrics to report and by which grouping
+model_metrics:
+  all_new_infections:
+    report: yes
+    by: none
+  new_local_infections:
+    report: no
+    by: none
+  new_importations:
+    report: no
+    by: none
+  confirmed:
+    report: no
+    by: none
+  deaths:
+    report: yes
+    by: none
+  hospital_beds:
+    report: yes
+    by: none
+  hospital_admissions:
+    report: yes
+    by: none
+  icu_beds:
+    report: yes
+    by: none
+  icu_admissions:
+    report: yes
+    by: none
+  currently_infected:
+    report: no
+    by: none
+  currently_infectious:
+    report: no
+    by: none
+  currently_symptomatic:
+    report: no
+    by: none
+  currently_isolated:
+    report: no
+    by: none
+  recovered:
+    report: no
+    by: none
+  n_vaccinated:
+    report: no
+    by: priority_groups
+  total_vaccinated:
+    report: no
+    by: priority_groups
+  vaccine_coverage:
+    report: no
+    by: none
+  vaccine_coverage_pop:
+    report: no
+    by: none
+  booster_coverage:
+    report: no
+    by: none
+  booster_coverage_pop:
+    report: no
+    by: none
+  booster_coverage_12m:
+    report: no
+    by: priority_groups
+  booster_coverage_12m_pop:
+    report: no
+    by: none
+  n_doses:
+    report: no
+    by: priority_groups
+  total_doses:
+    report: no
+    by: priority_groups
+  n_prep:
+    report: no
+    by: none
+  total_prep:
+    report: no
+    by: none
+  prep_coverage:
+    report: no
+    by: none
+  prep_coverage_pop:
+    report: no
+    by: none
+  n_treat:
+    report: no
+    by: none
+  total_treat:
+    report: no
+    by: none
+  n_treat_success:
+    report: no
+    by: none
+  total_treat_success:
+    report: no
+    by: priority_groups
+  treatment_coverage:
+    report: no
+    by: none
+  treatment_coverage_pop:
+    report: no
+    by: none
+  natural_deaths:
+    report: no
+    by: none
+  births:
+    report: no
+  pop_age:
+    report: no
+  n_infections: 
+    report: no
+  variant_prevalence:
+    report: yes
+  Re:
+    report: yes
+  seroprevalence:
+    report: no
+  pop_susceptibility:
+    report: yes
+  pop_prevalence:
+    report: no
+  seasonality:
+    report: yes
+  contact_reduction:
+    report: no
+  healthcare_costs:
+    report: no
+  intervention_costs:
+    report: no
+  overall_costs:
+    report: no
+

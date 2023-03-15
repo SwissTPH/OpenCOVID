@@ -31,12 +31,12 @@ seasonality_shift: 120  # 0 represents mid-winter
 
 # ---- Air pollution factors ----
 
-# Increase in pollutant per m^3 of air
+# Units (microgram/m^3) of increase in air pollutant exposure
 air_pollution_exposure: 0
 
 # Increase in susceptibility/severity per microgram / m^3 of air polutant
 #
-# SOURCES: xxx
+# SOURCE: https://www.sciencedirect.com/science/article/pii/S0269749120365489
 air_pollution:
   susceptibility: 1.0  # Increase in susceptibility per microgram / m^3 of air polutant
   severity: 1.0        # Increase in severity per microgram / m^3 of air polutant
