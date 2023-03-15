@@ -28,7 +28,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$user = Sys.info()[["user"]]
   
   # Name of analysis to run (cannot contain period symbol)
-  o$analysis_name = "demo"
+  o$analysis_name = "air_pollution"
   
   # Set analysis name and create output directory system
   o = set_dirs(o)  # See directories.R
@@ -106,10 +106,10 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$best_estimate_simulation = "mean"
   
   # Number of seeds to run for each scenario (including baseline)
-  o$n_seeds_analysis = 10
+  o$n_seeds_analysis = 100
   
   # Number of parameters sets to sample when simulating parameter uncertainty
-  o$n_parameter_sets = 10  # Best to set to 1 if not simulating parameter uncertainty
+  o$n_parameter_sets = 100  # Best to set to 1 if not simulating parameter uncertainty
 
   # Flag for simulating each uncertainty parameter set n_seeds times
   #
@@ -141,8 +141,8 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # NOTES:
   #  1) This should be an OVER-ESTIMATE of time needed per job - this is important as jobs over this will fail
   #  2) For more details, see: https://wiki.biozentrum.unibas.ch/display/scicore/4.+Queues+and+partitions
-  o$job_time  = "00:30:00"  # Use "HH:MM:SS" or "D-HH:MM:SS" format
-  o$job_queue = "30min"  # Queue to use (check out scicore wiki if unfamiliar)
+  o$job_time  = "03:00:00"  # Use "HH:MM:SS" or "D-HH:MM:SS" format
+  o$job_queue = "6hours"  # Queue to use (check out scicore wiki if unfamiliar)
   
   # Memory to allocate for each cluster job
   #
