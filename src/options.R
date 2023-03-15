@@ -28,7 +28,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$user = Sys.info()[["user"]]
   
   # Name of analysis to run (cannot contain period symbol)
-  o$analysis_name = "demo"
+  o$analysis_name = "omicron"
   
   # Set analysis name and create output directory system
   o = set_dirs(o)  # See directories.R
