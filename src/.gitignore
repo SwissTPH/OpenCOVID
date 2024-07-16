@@ -10,8 +10,3 @@ README.md
 config/my_options.yaml
 log/
 cache/
-input/*
-!input/demo.yaml
-output/*
-!output/3_figures/covid_networks/*
-!output/3_figures/covid_networks_beta/*

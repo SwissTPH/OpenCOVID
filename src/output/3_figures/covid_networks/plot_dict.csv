@@ -1,0 +1,35 @@
+identifier;level;label;rank
+metric;all_new_infections;New infections;1
+metric;hospital_admissions;Hospital admissions;2
+community_sampling;static;Static ;1
+community_sampling;dynamic;Dynamic;2
+network_structure;baseline;Single-layer;1
+network_structure;single_layer;Single-layer;2
+network_structure;dual_layer;Dual-layer;3
+network_structure;multi_layer;Multi-layer;4
+contact_weight;UNI;Uniform;1
+contact_weight;CW1;CW1;2
+contact_weight;CW2;CW2;3
+contact_weight;CW3;CW3;4
+contact_weight;CW4;CW4;5
+contact_weight;CW5;CW5;6
+intervention;none;None;1
+intervention;teacher_vaccination;Teacher vaccination;2
+intervention;workplace_closure;Workplace closure;3
+overwrite;yes;Randomly sampled;1
+overwrite;no;Targeted;2
+intervention_level;none;none;1
+intervention_level;SCS1;5;2
+intervention_level;SCS2;7;3
+intervention_level;SCS3;9;4
+intervention_level;SCS4;11;5
+intervention_level;WPS1;6;6
+intervention_level;WPS2;8;7
+intervention_level;WPS3;10;8
+intervention_level;WPS4;12;9
+household_size;0;Household size 0;1
+household_size;1;Household size 1;2
+household_size;2;Household size 2;3
+household_size;3;Household size 3;4
+household_size;4;Household size 4;5
+household_size;5;Household size 5;6

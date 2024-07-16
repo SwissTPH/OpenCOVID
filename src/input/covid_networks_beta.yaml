@@ -1,0 +1,2495 @@
+---
+
+# ---- Basic settings ----
+
+# Run all simulations for x days into the future
+n_days: 400
+
+# Set average beta
+beta: 0.022
+
+# Number of people to simulate
+population_size: 100000
+
+# Alternative number of contacts (for test simulation step 0 only)
+contacts: 12.0
+
+# Importated infections per day
+import_constant: 1.5  # per 100k people
+
+# Set R_eff to start calibration
+r_eff: 1.0
+
+# Shift seasonality to summer months
+seasonality_fn: 
+  fn: "cospi"
+  x:
+    fn: "seq"
+    from: -1
+    to: 1
+    length.out: 365
+seasonality_scaler: 0.3
+seasonality_shift: 120  # 0 represents mid-winter
+
+# ---- New demography for Western Europe ----
+
+demography:
+  age1: 0.00968689492861966
+  age2: 0.00977123242974378
+  age3: 0.00997333943571471
+  age4: 0.0101434040259927
+  age5: 0.0103204907701452
+  age6: 0.0103653772785114
+  age7: 0.0103609500459302
+  age8: 0.010342962174362
+  age9: 0.0103342151911468
+  age10: 0.0104027989097451
+  age11: 0.0105028236569516
+  age12: 0.0105329697840071
+  age13: 0.0105356235644618
+  age14: 0.0105174463199393
+  age15: 0.010465394348436
+  age16: 0.0104307544523558
+  age17: 0.0104548585585304
+  age18: 0.0105318565781269
+  age19: 0.0106272775152678
+  age20: 0.0108305924135961
+  age21: 0.0111330594080846
+  age22: 0.0112809775990809
+  age23: 0.0113175189019863
+  age24: 0.0114193989923265
+  age25: 0.0114654217384188
+  age26: 0.0114256329452559
+  age27: 0.0113915816407906
+  age28: 0.0115531090935595
+  age29: 0.0118637216841785
+  age30: 0.0122310335609641
+  age31: 0.0126497346039129
+  age32: 0.0128902715241447
+  age33: 0.0129684927906625
+  age34: 0.0129769531553523
+  age35: 0.0128809564220664
+  age36: 0.0127512385074384
+  age37: 0.0126135387786945
+  age38: 0.0125669095273295
+  age39: 0.0127374398727115
+  age40: 0.0129603727854717
+  age41: 0.0129813420015237
+  age42: 0.0127075624505236
+  age43: 0.0123576165854696
+  age44: 0.0122086594023184
+  age45: 0.0120360305998749
+  age46: 0.0119157224738023
+  age47: 0.0120795735839029
+  age48: 0.0123940708791798
+  age49: 0.0128873669524802
+  age50: 0.0135019538439405
+  age51: 0.0138653144796247
+  age52: 0.0141394395083119
+  age53: 0.0144192738756629
+  age54: 0.0146136831269494
+  age55: 0.0148317972657499
+  age56: 0.0149748787691286
+  age57: 0.0150667963066142
+  age58: 0.0150518511977853
+  age59: 0.0147350430406467
+  age60: 0.0143884930933009
+  age61: 0.014053822460199
+  age62: 0.0136747285147407
+  age63: 0.0132383185414673
+  age64: 0.0128087669400537
+  age65: 0.0124735435426526
+  age66: 0.0121183899213544
+  age67: 0.0117923920577423
+  age68: 0.0114948436418787
+  age69: 0.0112903515603207
+  age70: 0.0110934088059964
+  age71: 0.0109269986019183
+  age72: 0.0107719175068789
+  age73: 0.0103936629442452
+  age74: 0.00995720690728024
+  age75: 0.00934045246322098
+  age76: 0.00802150054538003
+  age77: 0.00755784901671561
+  age78: 0.00785559448281551
+  age79: 0.00746004556308163
+  age80: 0.00732197988389887
+  age81: 0.00749920993731405
+  age82: 0.00739035119769705
+  age83: 0.00687175080314669
+  age84: 0.00615851595703984
+  age85: 0.00557599451311826
+  age86: 0.0050586250427711
+  age87: 0.00452254091816612
+  age88: 0.00385071477171
+  age89: 0.00330231628688505
+  age90: 0.0147591113195055
+
+# ---- Network settings ----
+
+# Network structure (OPTIONS: "random", "age", or "layers")
+network_structure: "age"
+
+# Network layers (OPTIONS: "household", "school", "workplace")
+network_layers: household, school, workplace
+
+layer_properties:
+  household:
+    distribution: "normal"
+    mean: 2.5
+    sd: 1.0
+    age_min: 0
+    age_max: Inf
+    beta_scaler: 1.0
+  school:
+    cluster_sampling:
+      method: static
+      value: 10
+    contacts: 3.0
+    age_min: 0
+    age_max: 20
+    beta_scaler: 1.0
+  workplace:
+    cluster_sampling:
+      method: static
+      value: 10
+    contacts: 3.0
+    age_min: 21
+    age_max: 65
+    beta_scaler: 1.0
+
+# Countries to pull network matrix data from
+contact_matrix_countries: DE
+
+# Define scenario blocks to be reused and combined
+scenario_block:
+- create_block: &wp_closure_150_300
+    npi_layers:
+    - layer: household
+      day1: 1.0
+      day150: 1.0
+      day300: 1.0
+    - layer: school
+      day1: 1.0
+      day150: 1.0
+      day300: 1.0
+    - layer: workplace
+      day1: 1.0
+      day150: 0.0
+      day300: 1.0
+    - layer: community
+      day1: 1.0
+      day150: 1.0
+      day300: 1.0
+- create_block: &UNI_HS1
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 1.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 1.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.0
+- create_block: &UNI_HS2
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 2.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 1.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.0
+- create_block: &UNI_HS3
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 3.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 1.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.0
+- create_block: &UNI_HS4
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 4.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 1.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.0
+- create_block: &UNI_HS5
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 5.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 1.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.0
+- create_block: &CW1_HS1
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 1.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 2.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.5
+- create_block: &CW1_HS2
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 2.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 2.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.5
+- create_block: &CW1_HS3
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 3.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 2.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.5
+- create_block: &CW1_HS4
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 4.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 2.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.5
+- create_block: &CW1_HS5
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 5.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 2.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 1.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 1.5
+- create_block: &CW2_HS1
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 1.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 4.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.0
+- create_block: &CW2_HS2
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 2.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 4.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.0
+- create_block: &CW2_HS3
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 3.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 4.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.0
+- create_block: &CW2_HS4
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 4.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 4.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.0
+- create_block: &CW2_HS5
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 5.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 4.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.0
+- create_block: &CW3_HS1
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 1.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 5.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.5
+- create_block: &CW3_HS2
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 2.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 5.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.5
+- create_block: &CW3_HS3
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 3.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 5.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.5
+- create_block: &CW3_HS4
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 4.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 5.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.5
+- create_block: &CW3_HS5
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 5.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 5.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 2.5
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 2.5
+- create_block: &CW4_HS1
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 1.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 8.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 4.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 4.0
+- create_block: &CW4_HS2
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 2.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 8.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 4.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 4.0
+- create_block: &CW4_HS3
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 3.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 8.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 4.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 4.0
+- create_block: &CW4_HS4
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 4.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 8.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 4.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 4.0
+- create_block: &CW4_HS5
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 5.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 8.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 4.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 4.0
+- create_block: &CW5_HS1
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 1.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 16.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 8.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 8.0
+- create_block: &CW5_HS2
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 2.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 16.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 8.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 8.0
+- create_block: &CW5_HS3
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 3.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 16.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 8.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 8.0
+- create_block: &CW5_HS4
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 4.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 16.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 8.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 8.0
+- create_block: &CW5_HS5
+    community_sampling: "static"
+    network_structure: layers
+    network_layers: household, school, workplace
+    layer_properties:
+      household:
+        distribution: normal
+        mean: 5.0
+        sd: 1.0
+        age_min: 0
+        age_max: Inf
+        beta_scaler: 16.0
+      school:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 0
+        age_max: 20
+        beta_scaler: 8.0
+      workplace:
+        cluster_sampling:
+          method: static
+          value: 30
+        contacts: 5.0
+        age_min: 21
+        age_max: 65
+        beta_scaler: 8.0
+
+scenarios:
+- id: SL_UNI
+  name: "SL_UNI"
+  community_sampling: "static"
+  network_structure: age
+  network_layers: community
+  layer_properties:
+    household:
+      distribution: normal
+      mean: 0.0
+      sd: 1.0
+      age_min: 0
+      age_max: Inf
+      beta_scaler: 1.0
+    school:
+      cluster_sampling:
+        method: static
+        value: 30
+      contacts: 5.0
+      age_min: 0
+      age_max: 20
+      beta_scaler: 1.0
+    workplace:
+      cluster_sampling:
+        method: static
+        value: 30
+      contacts: 5.0
+      age_min: 21
+      age_max: 65
+      beta_scaler: 1.0
+- id: ML_UNI_HS1_b0
+  name: "ML_UNI_HS1_b0"
+  <<: *UNI_HS1
+  beta: 0.022
+- id: ML_UNI_HS1_b1
+  name: "ML_UNI_HS1_b1"
+  <<: *UNI_HS1
+  beta: 0.0221
+- id: ML_UNI_HS1_b2
+  name: "ML_UNI_HS1_b2"
+  <<: *UNI_HS1
+  beta: 0.0222
+- id: ML_UNI_HS1_b3
+  name: "ML_UNI_HS1_b3"
+  <<: *UNI_HS1
+  beta: 0.0223
+- id: ML_UNI_HS1_b4
+  name: "ML_UNI_HS1_b4"
+  <<: *UNI_HS1
+  beta: 0.0224
+- id: ML_UNI_HS1_b5
+  name: "ML_UNI_HS1_b5"
+  <<: *UNI_HS1
+  beta: 0.0225
+- id: ML_UNI_HS1_b6
+  name: "ML_UNI_HS1_b6"
+  <<: *UNI_HS1
+  beta: 0.0226
+- id: ML_UNI_HS1_b7
+  name: "ML_UNI_HS1_b7"
+  <<: *UNI_HS1
+  beta: 0.0227
+- id: ML_UNI_HS1_b8
+  name: "ML_UNI_HS1_b8"
+  <<: *UNI_HS1
+  beta: 0.0228
+- id: ML_UNI_HS1_b9
+  name: "ML_UNI_HS1_b9"
+  <<: *UNI_HS1
+  beta: 0.0229
+- id: ML_UNI_HS1_b10
+  name: "ML_UNI_HS1_b10"
+  <<: *UNI_HS1
+  beta: 0.023
+- id: ML_UNI_HS1_b11
+  name: "ML_UNI_HS1_b11"
+  <<: *UNI_HS1
+  beta: 0.0231
+- id: ML_UNI_HS2_b0
+  name: "ML_UNI_HS2_b0"
+  <<: *UNI_HS2
+  beta: 0.022
+- id: ML_UNI_HS2_b1
+  name: "ML_UNI_HS2_b1"
+  <<: *UNI_HS2
+  beta: 0.0224
+- id: ML_UNI_HS2_b2
+  name: "ML_UNI_HS2_b2"
+  <<: *UNI_HS2
+  beta: 0.0225
+- id: ML_UNI_HS2_b3
+  name: "ML_UNI_HS2_b3"
+  <<: *UNI_HS2
+  beta: 0.0226
+- id: ML_UNI_HS2_b4
+  name: "ML_UNI_HS2_b4"
+  <<: *UNI_HS2
+  beta: 0.0227
+- id: ML_UNI_HS2_b5
+  name: "ML_UNI_HS2_b5"
+  <<: *UNI_HS2
+  beta: 0.0228
+- id: ML_UNI_HS2_b6
+  name: "ML_UNI_HS2_b6"
+  <<: *UNI_HS2
+  beta: 0.0229
+- id: ML_UNI_HS2_b7
+  name: "ML_UNI_HS2_b7"
+  <<: *UNI_HS2
+  beta: 0.023
+- id: ML_UNI_HS2_b8
+  name: "ML_UNI_HS2_b8"
+  <<: *UNI_HS2
+  beta: 0.0231
+- id: ML_UNI_HS2_b9
+  name: "ML_UNI_HS2_b9"
+  <<: *UNI_HS2
+  beta: 0.0232
+- id: ML_UNI_HS2_b10
+  name: "ML_UNI_HS2_b10"
+  <<: *UNI_HS2
+  beta: 0.0233
+- id: ML_UNI_HS2_b11
+  name: "ML_UNI_HS2_b11"
+  <<: *UNI_HS2
+  beta: 0.0234
+- id: ML_UNI_HS3_b0
+  name: "ML_UNI_HS3_b0"
+  <<: *UNI_HS3
+  beta: 0.022
+- id: ML_UNI_HS3_b1
+  name: "ML_UNI_HS3_b1"
+  <<: *UNI_HS3
+  beta: 0.0224
+- id: ML_UNI_HS3_b2
+  name: "ML_UNI_HS3_b2"
+  <<: *UNI_HS3
+  beta: 0.0225
+- id: ML_UNI_HS3_b3
+  name: "ML_UNI_HS3_b3"
+  <<: *UNI_HS3
+  beta: 0.0226
+- id: ML_UNI_HS3_b4
+  name: "ML_UNI_HS3_b4"
+  <<: *UNI_HS3
+  beta: 0.0227
+- id: ML_UNI_HS3_b5
+  name: "ML_UNI_HS3_b5"
+  <<: *UNI_HS3
+  beta: 0.0228
+- id: ML_UNI_HS3_b6
+  name: "ML_UNI_HS3_b6"
+  <<: *UNI_HS3
+  beta: 0.0229
+- id: ML_UNI_HS3_b7
+  name: "ML_UNI_HS3_b7"
+  <<: *UNI_HS3
+  beta: 0.023
+- id: ML_UNI_HS3_b8
+  name: "ML_UNI_HS3_b8"
+  <<: *UNI_HS3
+  beta: 0.0231
+- id: ML_UNI_HS3_b9
+  name: "ML_UNI_HS3_b9"
+  <<: *UNI_HS3
+  beta: 0.0232
+- id: ML_UNI_HS3_b10
+  name: "ML_UNI_HS3_b10"
+  <<: *UNI_HS3
+  beta: 0.0233
+- id: ML_UNI_HS3_b11
+  name: "ML_UNI_HS3_b11"
+  <<: *UNI_HS3
+  beta: 0.0234
+- id: ML_UNI_HS4_b0
+  name: "ML_UNI_HS4_b0"
+  <<: *UNI_HS4
+  beta: 0.022
+- id: ML_UNI_HS4_b1
+  name: "ML_UNI_HS4_b1"
+  <<: *UNI_HS4
+  beta: 0.0229
+- id: ML_UNI_HS4_b2
+  name: "ML_UNI_HS4_b2"
+  <<: *UNI_HS4
+  beta: 0.023
+- id: ML_UNI_HS4_b3
+  name: "ML_UNI_HS4_b3"
+  <<: *UNI_HS4
+  beta: 0.0231
+- id: ML_UNI_HS4_b4
+  name: "ML_UNI_HS4_b4"
+  <<: *UNI_HS4
+  beta: 0.0232
+- id: ML_UNI_HS4_b5
+  name: "ML_UNI_HS4_b5"
+  <<: *UNI_HS4
+  beta: 0.0233
+- id: ML_UNI_HS4_b6
+  name: "ML_UNI_HS4_b6"
+  <<: *UNI_HS4
+  beta: 0.0234
+- id: ML_UNI_HS4_b7
+  name: "ML_UNI_HS4_b7"
+  <<: *UNI_HS4
+  beta: 0.0235
+- id: ML_UNI_HS4_b8
+  name: "ML_UNI_HS4_b8"
+  <<: *UNI_HS4
+  beta: 0.0236
+- id: ML_UNI_HS4_b9
+  name: "ML_UNI_HS4_b9"
+  <<: *UNI_HS4
+  beta: 0.0237
+- id: ML_UNI_HS4_b10
+  name: "ML_UNI_HS4_b10"
+  <<: *UNI_HS4
+  beta: 0.0238
+- id: ML_UNI_HS4_b11
+  name: "ML_UNI_HS4_b11"
+  <<: *UNI_HS4
+  beta: 0.0239
+- id: ML_UNI_HS5_b0
+  name: "ML_UNI_HS5_b0"
+  <<: *UNI_HS5
+  beta: 0.022
+- id: ML_UNI_HS5_b1
+  name: "ML_UNI_HS5_b1"
+  <<: *UNI_HS5
+  beta: 0.0233
+- id: ML_UNI_HS5_b2
+  name: "ML_UNI_HS5_b2"
+  <<: *UNI_HS5
+  beta: 0.0234
+- id: ML_UNI_HS5_b3
+  name: "ML_UNI_HS5_b3"
+  <<: *UNI_HS5
+  beta: 0.0235
+- id: ML_UNI_HS5_b4
+  name: "ML_UNI_HS5_b4"
+  <<: *UNI_HS5
+  beta: 0.0236
+- id: ML_UNI_HS5_b5
+  name: "ML_UNI_HS5_b5"
+  <<: *UNI_HS5
+  beta: 0.0237
+- id: ML_UNI_HS5_b6
+  name: "ML_UNI_HS5_b6"
+  <<: *UNI_HS5
+  beta: 0.0238
+- id: ML_UNI_HS5_b7
+  name: "ML_UNI_HS5_b7"
+  <<: *UNI_HS5
+  beta: 0.0239
+- id: ML_UNI_HS5_b8
+  name: "ML_UNI_HS5_b8"
+  <<: *UNI_HS5
+  beta: 0.024
+- id: ML_UNI_HS5_b9
+  name: "ML_UNI_HS5_b9"
+  <<: *UNI_HS5
+  beta: 0.0241
+- id: ML_UNI_HS5_b10
+  name: "ML_UNI_HS5_b10"
+  <<: *UNI_HS5
+  beta: 0.0242
+- id: ML_UNI_HS5_b11
+  name: "ML_UNI_HS5_b11"
+  <<: *UNI_HS5
+  beta: 0.0243
+- id: ML_CW1_HS1_b0
+  name: "ML_CW1_HS1_b0"
+  <<: *CW1_HS1
+  beta: 0.022
+- id: ML_CW1_HS1_b1
+  name: "ML_CW1_HS1_b1"
+  <<: *CW1_HS1
+  beta: 0.0222
+- id: ML_CW1_HS1_b2
+  name: "ML_CW1_HS1_b2"
+  <<: *CW1_HS1
+  beta: 0.0223
+- id: ML_CW1_HS1_b3
+  name: "ML_CW1_HS1_b3"
+  <<: *CW1_HS1
+  beta: 0.0224
+- id: ML_CW1_HS1_b4
+  name: "ML_CW1_HS1_b4"
+  <<: *CW1_HS1
+  beta: 0.0225
+- id: ML_CW1_HS1_b5
+  name: "ML_CW1_HS1_b5"
+  <<: *CW1_HS1
+  beta: 0.0226
+- id: ML_CW1_HS1_b6
+  name: "ML_CW1_HS1_b6"
+  <<: *CW1_HS1
+  beta: 0.0227
+- id: ML_CW1_HS1_b7
+  name: "ML_CW1_HS1_b7"
+  <<: *CW1_HS1
+  beta: 0.0228
+- id: ML_CW1_HS1_b8
+  name: "ML_CW1_HS1_b8"
+  <<: *CW1_HS1
+  beta: 0.0229
+- id: ML_CW1_HS1_b9
+  name: "ML_CW1_HS1_b9"
+  <<: *CW1_HS1
+  beta: 0.023
+- id: ML_CW1_HS1_b10
+  name: "ML_CW1_HS1_b10"
+  <<: *CW1_HS1
+  beta: 0.0231
+- id: ML_CW1_HS1_b11
+  name: "ML_CW1_HS1_b11"
+  <<: *CW1_HS1
+  beta: 0.0232
+- id: ML_CW1_HS2_b0
+  name: "ML_CW1_HS2_b0"
+  <<: *CW1_HS2
+  beta: 0.022
+- id: ML_CW1_HS2_b1
+  name: "ML_CW1_HS2_b1"
+  <<: *CW1_HS2
+  beta: 0.0226
+- id: ML_CW1_HS2_b2
+  name: "ML_CW1_HS2_b2"
+  <<: *CW1_HS2
+  beta: 0.0227
+- id: ML_CW1_HS2_b3
+  name: "ML_CW1_HS2_b3"
+  <<: *CW1_HS2
+  beta: 0.0228
+- id: ML_CW1_HS2_b4
+  name: "ML_CW1_HS2_b4"
+  <<: *CW1_HS2
+  beta: 0.0229
+- id: ML_CW1_HS2_b5
+  name: "ML_CW1_HS2_b5"
+  <<: *CW1_HS2
+  beta: 0.023
+- id: ML_CW1_HS2_b6
+  name: "ML_CW1_HS2_b6"
+  <<: *CW1_HS2
+  beta: 0.0231
+- id: ML_CW1_HS2_b7
+  name: "ML_CW1_HS2_b7"
+  <<: *CW1_HS2
+  beta: 0.0232
+- id: ML_CW1_HS2_b8
+  name: "ML_CW1_HS2_b8"
+  <<: *CW1_HS2
+  beta: 0.0233
+- id: ML_CW1_HS2_b9
+  name: "ML_CW1_HS2_b9"
+  <<: *CW1_HS2
+  beta: 0.0234
+- id: ML_CW1_HS2_b10
+  name: "ML_CW1_HS2_b10"
+  <<: *CW1_HS2
+  beta: 0.0235
+- id: ML_CW1_HS2_b11
+  name: "ML_CW1_HS2_b11"
+  <<: *CW1_HS2
+  beta: 0.0236
+- id: ML_CW1_HS3_b0
+  name: "ML_CW1_HS3_b0"
+  <<: *CW1_HS3
+  beta: 0.022
+- id: ML_CW1_HS3_b1
+  name: "ML_CW1_HS3_b1"
+  <<: *CW1_HS3
+  beta: 0.0232
+- id: ML_CW1_HS3_b2
+  name: "ML_CW1_HS3_b2"
+  <<: *CW1_HS3
+  beta: 0.0233
+- id: ML_CW1_HS3_b3
+  name: "ML_CW1_HS3_b3"
+  <<: *CW1_HS3
+  beta: 0.0234
+- id: ML_CW1_HS3_b4
+  name: "ML_CW1_HS3_b4"
+  <<: *CW1_HS3
+  beta: 0.0235
+- id: ML_CW1_HS3_b5
+  name: "ML_CW1_HS3_b5"
+  <<: *CW1_HS3
+  beta: 0.0236
+- id: ML_CW1_HS3_b6
+  name: "ML_CW1_HS3_b6"
+  <<: *CW1_HS3
+  beta: 0.0237
+- id: ML_CW1_HS3_b7
+  name: "ML_CW1_HS3_b7"
+  <<: *CW1_HS3
+  beta: 0.0238
+- id: ML_CW1_HS3_b8
+  name: "ML_CW1_HS3_b8"
+  <<: *CW1_HS3
+  beta: 0.0239
+- id: ML_CW1_HS3_b9
+  name: "ML_CW1_HS3_b9"
+  <<: *CW1_HS3
+  beta: 0.024
+- id: ML_CW1_HS3_b10
+  name: "ML_CW1_HS3_b10"
+  <<: *CW1_HS3
+  beta: 0.0241
+- id: ML_CW1_HS3_b11
+  name: "ML_CW1_HS3_b11"
+  <<: *CW1_HS3
+  beta: 0.0242
+- id: ML_CW1_HS4_b0
+  name: "ML_CW1_HS4_b0"
+  <<: *CW1_HS4
+  beta: 0.022
+- id: ML_CW1_HS4_b1
+  name: "ML_CW1_HS4_b1"
+  <<: *CW1_HS4
+  beta: 0.0237
+- id: ML_CW1_HS4_b2
+  name: "ML_CW1_HS4_b2"
+  <<: *CW1_HS4
+  beta: 0.0238
+- id: ML_CW1_HS4_b3
+  name: "ML_CW1_HS4_b3"
+  <<: *CW1_HS4
+  beta: 0.0239
+- id: ML_CW1_HS4_b4
+  name: "ML_CW1_HS4_b4"
+  <<: *CW1_HS4
+  beta: 0.024
+- id: ML_CW1_HS4_b5
+  name: "ML_CW1_HS4_b5"
+  <<: *CW1_HS4
+  beta: 0.0241
+- id: ML_CW1_HS4_b6
+  name: "ML_CW1_HS4_b6"
+  <<: *CW1_HS4
+  beta: 0.0242
+- id: ML_CW1_HS4_b7
+  name: "ML_CW1_HS4_b7"
+  <<: *CW1_HS4
+  beta: 0.0243
+- id: ML_CW1_HS4_b8
+  name: "ML_CW1_HS4_b8"
+  <<: *CW1_HS4
+  beta: 0.0244
+- id: ML_CW1_HS4_b9
+  name: "ML_CW1_HS4_b9"
+  <<: *CW1_HS4
+  beta: 0.0245
+- id: ML_CW1_HS4_b10
+  name: "ML_CW1_HS4_b10"
+  <<: *CW1_HS4
+  beta: 0.0246
+- id: ML_CW1_HS4_b11
+  name: "ML_CW1_HS4_b11"
+  <<: *CW1_HS4
+  beta: 0.0247
+- id: ML_CW1_HS5_b0
+  name: "ML_CW1_HS5_b0"
+  <<: *CW1_HS5
+  beta: 0.022
+- id: ML_CW1_HS5_b1
+  name: "ML_CW1_HS5_b1"
+  <<: *CW1_HS5
+  beta: 0.0243
+- id: ML_CW1_HS5_b2
+  name: "ML_CW1_HS5_b2"
+  <<: *CW1_HS5
+  beta: 0.0244
+- id: ML_CW1_HS5_b3
+  name: "ML_CW1_HS5_b3"
+  <<: *CW1_HS5
+  beta: 0.0245
+- id: ML_CW1_HS5_b4
+  name: "ML_CW1_HS5_b4"
+  <<: *CW1_HS5
+  beta: 0.0246
+- id: ML_CW1_HS5_b5
+  name: "ML_CW1_HS5_b5"
+  <<: *CW1_HS5
+  beta: 0.0247
+- id: ML_CW1_HS5_b6
+  name: "ML_CW1_HS5_b6"
+  <<: *CW1_HS5
+  beta: 0.0248
+- id: ML_CW1_HS5_b7
+  name: "ML_CW1_HS5_b7"
+  <<: *CW1_HS5
+  beta: 0.0249
+- id: ML_CW1_HS5_b8
+  name: "ML_CW1_HS5_b8"
+  <<: *CW1_HS5
+  beta: 0.025
+- id: ML_CW1_HS5_b9
+  name: "ML_CW1_HS5_b9"
+  <<: *CW1_HS5
+  beta: 0.0251
+- id: ML_CW1_HS5_b10
+  name: "ML_CW1_HS5_b10"
+  <<: *CW1_HS5
+  beta: 0.0252
+- id: ML_CW1_HS5_b11
+  name: "ML_CW1_HS5_b11"
+  <<: *CW1_HS5
+  beta: 0.0253
+- id: ML_CW2_HS1_b0
+  name: "ML_CW2_HS1_b0"
+  <<: *CW2_HS1
+  beta: 0.022
+- id: ML_CW2_HS1_b1
+  name: "ML_CW2_HS1_b1"
+  <<: *CW2_HS1
+  beta: 0.0227
+- id: ML_CW2_HS1_b2
+  name: "ML_CW2_HS1_b2"
+  <<: *CW2_HS1
+  beta: 0.0228
+- id: ML_CW2_HS1_b3
+  name: "ML_CW2_HS1_b3"
+  <<: *CW2_HS1
+  beta: 0.0229
+- id: ML_CW2_HS1_b4
+  name: "ML_CW2_HS1_b4"
+  <<: *CW2_HS1
+  beta: 0.023
+- id: ML_CW2_HS1_b5
+  name: "ML_CW2_HS1_b5"
+  <<: *CW2_HS1
+  beta: 0.0231
+- id: ML_CW2_HS1_b6
+  name: "ML_CW2_HS1_b6"
+  <<: *CW2_HS1
+  beta: 0.0232
+- id: ML_CW2_HS1_b7
+  name: "ML_CW2_HS1_b7"
+  <<: *CW2_HS1
+  beta: 0.0233
+- id: ML_CW2_HS1_b8
+  name: "ML_CW2_HS1_b8"
+  <<: *CW2_HS1
+  beta: 0.0234
+- id: ML_CW2_HS1_b9
+  name: "ML_CW2_HS1_b9"
+  <<: *CW2_HS1
+  beta: 0.0235
+- id: ML_CW2_HS1_b10
+  name: "ML_CW2_HS1_b10"
+  <<: *CW2_HS1
+  beta: 0.0236
+- id: ML_CW2_HS1_b11
+  name: "ML_CW2_HS1_b11"
+  <<: *CW2_HS1
+  beta: 0.0237
+- id: ML_CW2_HS2_b0
+  name: "ML_CW2_HS2_b0"
+  <<: *CW2_HS2
+  beta: 0.022
+- id: ML_CW2_HS2_b1
+  name: "ML_CW2_HS2_b1"
+  <<: *CW2_HS2
+  beta: 0.0237
+- id: ML_CW2_HS2_b2
+  name: "ML_CW2_HS2_b2"
+  <<: *CW2_HS2
+  beta: 0.0238
+- id: ML_CW2_HS2_b3
+  name: "ML_CW2_HS2_b3"
+  <<: *CW2_HS2
+  beta: 0.0239
+- id: ML_CW2_HS2_b4
+  name: "ML_CW2_HS2_b4"
+  <<: *CW2_HS2
+  beta: 0.024
+- id: ML_CW2_HS2_b5
+  name: "ML_CW2_HS2_b5"
+  <<: *CW2_HS2
+  beta: 0.0241
+- id: ML_CW2_HS2_b6
+  name: "ML_CW2_HS2_b6"
+  <<: *CW2_HS2
+  beta: 0.0242
+- id: ML_CW2_HS2_b7
+  name: "ML_CW2_HS2_b7"
+  <<: *CW2_HS2
+  beta: 0.0243
+- id: ML_CW2_HS2_b8
+  name: "ML_CW2_HS2_b8"
+  <<: *CW2_HS2
+  beta: 0.0244
+- id: ML_CW2_HS2_b9
+  name: "ML_CW2_HS2_b9"
+  <<: *CW2_HS2
+  beta: 0.0245
+- id: ML_CW2_HS2_b10
+  name: "ML_CW2_HS2_b10"
+  <<: *CW2_HS2
+  beta: 0.0246
+- id: ML_CW2_HS2_b11
+  name: "ML_CW2_HS2_b11"
+  <<: *CW2_HS2
+  beta: 0.0247
+- id: ML_CW2_HS3_b0
+  name: "ML_CW2_HS3_b0"
+  <<: *CW2_HS3
+  beta: 0.022
+- id: ML_CW2_HS3_b1
+  name: "ML_CW2_HS3_b1"
+  <<: *CW2_HS3
+  beta: 0.0247
+- id: ML_CW2_HS3_b2
+  name: "ML_CW2_HS3_b2"
+  <<: *CW2_HS3
+  beta: 0.0248
+- id: ML_CW2_HS3_b3
+  name: "ML_CW2_HS3_b3"
+  <<: *CW2_HS3
+  beta: 0.0249
+- id: ML_CW2_HS3_b4
+  name: "ML_CW2_HS3_b4"
+  <<: *CW2_HS3
+  beta: 0.025
+- id: ML_CW2_HS3_b5
+  name: "ML_CW2_HS3_b5"
+  <<: *CW2_HS3
+  beta: 0.0251
+- id: ML_CW2_HS3_b6
+  name: "ML_CW2_HS3_b6"
+  <<: *CW2_HS3
+  beta: 0.0252
+- id: ML_CW2_HS3_b7
+  name: "ML_CW2_HS3_b7"
+  <<: *CW2_HS3
+  beta: 0.0253
+- id: ML_CW2_HS3_b8
+  name: "ML_CW2_HS3_b8"
+  <<: *CW2_HS3
+  beta: 0.0254
+- id: ML_CW2_HS3_b9
+  name: "ML_CW2_HS3_b9"
+  <<: *CW2_HS3
+  beta: 0.0255
+- id: ML_CW2_HS3_b10
+  name: "ML_CW2_HS3_b10"
+  <<: *CW2_HS3
+  beta: 0.0256
+- id: ML_CW2_HS3_b11
+  name: "ML_CW2_HS3_b11"
+  <<: *CW2_HS3
+  beta: 0.0257
+- id: ML_CW2_HS4_b0
+  name: "ML_CW2_HS4_b0"
+  <<: *CW2_HS4
+  beta: 0.022
+- id: ML_CW2_HS4_b1
+  name: "ML_CW2_HS4_b1"
+  <<: *CW2_HS4
+  beta: 0.0257
+- id: ML_CW2_HS4_b2
+  name: "ML_CW2_HS4_b2"
+  <<: *CW2_HS4
+  beta: 0.0258
+- id: ML_CW2_HS4_b3
+  name: "ML_CW2_HS4_b3"
+  <<: *CW2_HS4
+  beta: 0.0259
+- id: ML_CW2_HS4_b4
+  name: "ML_CW2_HS4_b4"
+  <<: *CW2_HS4
+  beta: 0.026
+- id: ML_CW2_HS4_b5
+  name: "ML_CW2_HS4_b5"
+  <<: *CW2_HS4
+  beta: 0.0261
+- id: ML_CW2_HS4_b6
+  name: "ML_CW2_HS4_b6"
+  <<: *CW2_HS4
+  beta: 0.0262
+- id: ML_CW2_HS4_b7
+  name: "ML_CW2_HS4_b7"
+  <<: *CW2_HS4
+  beta: 0.0263
+- id: ML_CW2_HS4_b8
+  name: "ML_CW2_HS4_b8"
+  <<: *CW2_HS4
+  beta: 0.0264
+- id: ML_CW2_HS4_b9
+  name: "ML_CW2_HS4_b9"
+  <<: *CW2_HS4
+  beta: 0.0265
+- id: ML_CW2_HS4_b10
+  name: "ML_CW2_HS4_b10"
+  <<: *CW2_HS4
+  beta: 0.0266
+- id: ML_CW2_HS4_b11
+  name: "ML_CW2_HS4_b11"
+  <<: *CW2_HS4
+  beta: 0.0267
+- id: ML_CW2_HS5_b0
+  name: "ML_CW2_HS5_b0"
+  <<: *CW2_HS5
+  beta: 0.022
+- id: ML_CW2_HS5_b1
+  name: "ML_CW2_HS5_b1"
+  <<: *CW2_HS5
+  beta: 0.0266
+- id: ML_CW2_HS5_b2
+  name: "ML_CW2_HS5_b2"
+  <<: *CW2_HS5
+  beta: 0.0267
+- id: ML_CW2_HS5_b3
+  name: "ML_CW2_HS5_b3"
+  <<: *CW2_HS5
+  beta: 0.0268
+- id: ML_CW2_HS5_b4
+  name: "ML_CW2_HS5_b4"
+  <<: *CW2_HS5
+  beta: 0.0269
+- id: ML_CW2_HS5_b5
+  name: "ML_CW2_HS5_b5"
+  <<: *CW2_HS5
+  beta: 0.027
+- id: ML_CW2_HS5_b6
+  name: "ML_CW2_HS5_b6"
+  <<: *CW2_HS5
+  beta: 0.0271
+- id: ML_CW2_HS5_b7
+  name: "ML_CW2_HS5_b7"
+  <<: *CW2_HS5
+  beta: 0.0272
+- id: ML_CW2_HS5_b8
+  name: "ML_CW2_HS5_b8"
+  <<: *CW2_HS5
+  beta: 0.0273
+- id: ML_CW2_HS5_b9
+  name: "ML_CW2_HS5_b9"
+  <<: *CW2_HS5
+  beta: 0.0274
+- id: ML_CW2_HS5_b10
+  name: "ML_CW2_HS5_b10"
+  <<: *CW2_HS5
+  beta: 0.0275
+- id: ML_CW2_HS5_b11
+  name: "ML_CW2_HS5_b11"
+  <<: *CW2_HS5
+  beta: 0.0276
+- id: ML_CW3_HS1_b0
+  name: "ML_CW3_HS1_b0"
+  <<: *CW3_HS1
+  beta: 0.022
+- id: ML_CW3_HS1_b1
+  name: "ML_CW3_HS1_b1"
+  <<: *CW3_HS1
+  beta: 0.0231
+- id: ML_CW3_HS1_b2
+  name: "ML_CW3_HS1_b2"
+  <<: *CW3_HS1
+  beta: 0.0232
+- id: ML_CW3_HS1_b3
+  name: "ML_CW3_HS1_b3"
+  <<: *CW3_HS1
+  beta: 0.0233
+- id: ML_CW3_HS1_b4
+  name: "ML_CW3_HS1_b4"
+  <<: *CW3_HS1
+  beta: 0.0234
+- id: ML_CW3_HS1_b5
+  name: "ML_CW3_HS1_b5"
+  <<: *CW3_HS1
+  beta: 0.0235
+- id: ML_CW3_HS1_b6
+  name: "ML_CW3_HS1_b6"
+  <<: *CW3_HS1
+  beta: 0.0236
+- id: ML_CW3_HS1_b7
+  name: "ML_CW3_HS1_b7"
+  <<: *CW3_HS1
+  beta: 0.0237
+- id: ML_CW3_HS1_b8
+  name: "ML_CW3_HS1_b8"
+  <<: *CW3_HS1
+  beta: 0.0238
+- id: ML_CW3_HS1_b9
+  name: "ML_CW3_HS1_b9"
+  <<: *CW3_HS1
+  beta: 0.0239
+- id: ML_CW3_HS1_b10
+  name: "ML_CW3_HS1_b10"
+  <<: *CW3_HS1
+  beta: 0.024
+- id: ML_CW3_HS1_b11
+  name: "ML_CW3_HS1_b11"
+  <<: *CW3_HS1
+  beta: 0.0241
+- id: ML_CW3_HS2_b0
+  name: "ML_CW3_HS2_b0"
+  <<: *CW3_HS2
+  beta: 0.022
+- id: ML_CW3_HS2_b1
+  name: "ML_CW3_HS2_b1"
+  <<: *CW3_HS2
+  beta: 0.0242
+- id: ML_CW3_HS2_b2
+  name: "ML_CW3_HS2_b2"
+  <<: *CW3_HS2
+  beta: 0.0243
+- id: ML_CW3_HS2_b3
+  name: "ML_CW3_HS2_b3"
+  <<: *CW3_HS2
+  beta: 0.0244
+- id: ML_CW3_HS2_b4
+  name: "ML_CW3_HS2_b4"
+  <<: *CW3_HS2
+  beta: 0.0245
+- id: ML_CW3_HS2_b5
+  name: "ML_CW3_HS2_b5"
+  <<: *CW3_HS2
+  beta: 0.0246
+- id: ML_CW3_HS2_b6
+  name: "ML_CW3_HS2_b6"
+  <<: *CW3_HS2
+  beta: 0.0247
+- id: ML_CW3_HS2_b7
+  name: "ML_CW3_HS2_b7"
+  <<: *CW3_HS2
+  beta: 0.0248
+- id: ML_CW3_HS2_b8
+  name: "ML_CW3_HS2_b8"
+  <<: *CW3_HS2
+  beta: 0.0249
+- id: ML_CW3_HS2_b9
+  name: "ML_CW3_HS2_b9"
+  <<: *CW3_HS2
+  beta: 0.025
+- id: ML_CW3_HS2_b10
+  name: "ML_CW3_HS2_b10"
+  <<: *CW3_HS2
+  beta: 0.0251
+- id: ML_CW3_HS2_b11
+  name: "ML_CW3_HS2_b11"
+  <<: *CW3_HS2
+  beta: 0.0252
+- id: ML_CW3_HS3_b0
+  name: "ML_CW3_HS3_b0"
+  <<: *CW3_HS3
+  beta: 0.022
+- id: ML_CW3_HS3_b1
+  name: "ML_CW3_HS3_b1"
+  <<: *CW3_HS3
+  beta: 0.0251
+- id: ML_CW3_HS3_b2
+  name: "ML_CW3_HS3_b2"
+  <<: *CW3_HS3
+  beta: 0.0252
+- id: ML_CW3_HS3_b3
+  name: "ML_CW3_HS3_b3"
+  <<: *CW3_HS3
+  beta: 0.0253
+- id: ML_CW3_HS3_b4
+  name: "ML_CW3_HS3_b4"
+  <<: *CW3_HS3
+  beta: 0.0254
+- id: ML_CW3_HS3_b5
+  name: "ML_CW3_HS3_b5"
+  <<: *CW3_HS3
+  beta: 0.0255
+- id: ML_CW3_HS3_b6
+  name: "ML_CW3_HS3_b6"
+  <<: *CW3_HS3
+  beta: 0.0256
+- id: ML_CW3_HS3_b7
+  name: "ML_CW3_HS3_b7"
+  <<: *CW3_HS3
+  beta: 0.0257
+- id: ML_CW3_HS3_b8
+  name: "ML_CW3_HS3_b8"
+  <<: *CW3_HS3
+  beta: 0.0258
+- id: ML_CW3_HS3_b9
+  name: "ML_CW3_HS3_b9"
+  <<: *CW3_HS3
+  beta: 0.0259
+- id: ML_CW3_HS3_b10
+  name: "ML_CW3_HS3_b10"
+  <<: *CW3_HS3
+  beta: 0.026
+- id: ML_CW3_HS3_b11
+  name: "ML_CW3_HS3_b11"
+  <<: *CW3_HS3
+  beta: 0.0261
+- id: ML_CW3_HS4_b0
+  name: "ML_CW3_HS4_b0"
+  <<: *CW3_HS4
+  beta: 0.022
+- id: ML_CW3_HS4_b1
+  name: "ML_CW3_HS4_b1"
+  <<: *CW3_HS4
+  beta: 0.026
+- id: ML_CW3_HS4_b2
+  name: "ML_CW3_HS4_b2"
+  <<: *CW3_HS4
+  beta: 0.0261
+- id: ML_CW3_HS4_b3
+  name: "ML_CW3_HS4_b3"
+  <<: *CW3_HS4
+  beta: 0.0262
+- id: ML_CW3_HS4_b4
+  name: "ML_CW3_HS4_b4"
+  <<: *CW3_HS4
+  beta: 0.0263
+- id: ML_CW3_HS4_b5
+  name: "ML_CW3_HS4_b5"
+  <<: *CW3_HS4
+  beta: 0.0264
+- id: ML_CW3_HS4_b6
+  name: "ML_CW3_HS4_b6"
+  <<: *CW3_HS4
+  beta: 0.0265
+- id: ML_CW3_HS4_b7
+  name: "ML_CW3_HS4_b7"
+  <<: *CW3_HS4
+  beta: 0.0266
+- id: ML_CW3_HS4_b8
+  name: "ML_CW3_HS4_b8"
+  <<: *CW3_HS4
+  beta: 0.0267
+- id: ML_CW3_HS4_b9
+  name: "ML_CW3_HS4_b9"
+  <<: *CW3_HS4
+  beta: 0.0268
+- id: ML_CW3_HS4_b10
+  name: "ML_CW3_HS4_b10"
+  <<: *CW3_HS4
+  beta: 0.0269
+- id: ML_CW3_HS4_b11
+  name: "ML_CW3_HS4_b11"
+  <<: *CW3_HS4
+  beta: 0.027
+- id: ML_CW3_HS5_b0
+  name: "ML_CW3_HS5_b0"
+  <<: *CW3_HS5
+  beta: 0.022
+- id: ML_CW3_HS5_b1
+  name: "ML_CW3_HS5_b1"
+  <<: *CW3_HS5
+  beta: 0.0272
+- id: ML_CW3_HS5_b2
+  name: "ML_CW3_HS5_b2"
+  <<: *CW3_HS5
+  beta: 0.0273
+- id: ML_CW3_HS5_b3
+  name: "ML_CW3_HS5_b3"
+  <<: *CW3_HS5
+  beta: 0.0274
+- id: ML_CW3_HS5_b4
+  name: "ML_CW3_HS5_b4"
+  <<: *CW3_HS5
+  beta: 0.0275
+- id: ML_CW3_HS5_b5
+  name: "ML_CW3_HS5_b5"
+  <<: *CW3_HS5
+  beta: 0.0276
+- id: ML_CW3_HS5_b6
+  name: "ML_CW3_HS5_b6"
+  <<: *CW3_HS5
+  beta: 0.0277
+- id: ML_CW3_HS5_b7
+  name: "ML_CW3_HS5_b7"
+  <<: *CW3_HS5
+  beta: 0.0278
+- id: ML_CW3_HS5_b8
+  name: "ML_CW3_HS5_b8"
+  <<: *CW3_HS5
+  beta: 0.0279
+- id: ML_CW3_HS5_b9
+  name: "ML_CW3_HS5_b9"
+  <<: *CW3_HS5
+  beta: 0.028
+- id: ML_CW3_HS5_b10
+  name: "ML_CW3_HS5_b10"
+  <<: *CW3_HS5
+  beta: 0.0281
+- id: ML_CW3_HS5_b11
+  name: "ML_CW3_HS5_b11"
+  <<: *CW3_HS5
+  beta: 0.0282
+- id: ML_CW4_HS1_b0
+  name: "ML_CW4_HS1_b0"
+  <<: *CW4_HS1
+  beta: 0.022
+- id: ML_CW4_HS1_b1
+  name: "ML_CW4_HS1_b1"
+  <<: *CW4_HS1
+  beta: 0.0241
+- id: ML_CW4_HS1_b2
+  name: "ML_CW4_HS1_b2"
+  <<: *CW4_HS1
+  beta: 0.0242
+- id: ML_CW4_HS1_b3
+  name: "ML_CW4_HS1_b3"
+  <<: *CW4_HS1
+  beta: 0.0243
+- id: ML_CW4_HS1_b4
+  name: "ML_CW4_HS1_b4"
+  <<: *CW4_HS1
+  beta: 0.0244
+- id: ML_CW4_HS1_b5
+  name: "ML_CW4_HS1_b5"
+  <<: *CW4_HS1
+  beta: 0.0245
+- id: ML_CW4_HS1_b6
+  name: "ML_CW4_HS1_b6"
+  <<: *CW4_HS1
+  beta: 0.0246
+- id: ML_CW4_HS1_b7
+  name: "ML_CW4_HS1_b7"
+  <<: *CW4_HS1
+  beta: 0.0247
+- id: ML_CW4_HS1_b8
+  name: "ML_CW4_HS1_b8"
+  <<: *CW4_HS1
+  beta: 0.0248
+- id: ML_CW4_HS1_b9
+  name: "ML_CW4_HS1_b9"
+  <<: *CW4_HS1
+  beta: 0.0249
+- id: ML_CW4_HS1_b10
+  name: "ML_CW4_HS1_b10"
+  <<: *CW4_HS1
+  beta: 0.025
+- id: ML_CW4_HS1_b11
+  name: "ML_CW4_HS1_b11"
+  <<: *CW4_HS1
+  beta: 0.0251
+- id: ML_CW4_HS2_b0
+  name: "ML_CW4_HS2_b0"
+  <<: *CW4_HS2
+  beta: 0.022
+- id: ML_CW4_HS2_b1
+  name: "ML_CW4_HS2_b1"
+  <<: *CW4_HS2
+  beta: 0.0249
+- id: ML_CW4_HS2_b2
+  name: "ML_CW4_HS2_b2"
+  <<: *CW4_HS2
+  beta: 0.025
+- id: ML_CW4_HS2_b3
+  name: "ML_CW4_HS2_b3"
+  <<: *CW4_HS2
+  beta: 0.0251
+- id: ML_CW4_HS2_b4
+  name: "ML_CW4_HS2_b4"
+  <<: *CW4_HS2
+  beta: 0.0252
+- id: ML_CW4_HS2_b5
+  name: "ML_CW4_HS2_b5"
+  <<: *CW4_HS2
+  beta: 0.0253
+- id: ML_CW4_HS2_b6
+  name: "ML_CW4_HS2_b6"
+  <<: *CW4_HS2
+  beta: 0.0254
+- id: ML_CW4_HS2_b7
+  name: "ML_CW4_HS2_b7"
+  <<: *CW4_HS2
+  beta: 0.0255
+- id: ML_CW4_HS2_b8
+  name: "ML_CW4_HS2_b8"
+  <<: *CW4_HS2
+  beta: 0.0256
+- id: ML_CW4_HS2_b9
+  name: "ML_CW4_HS2_b9"
+  <<: *CW4_HS2
+  beta: 0.0257
+- id: ML_CW4_HS2_b10
+  name: "ML_CW4_HS2_b10"
+  <<: *CW4_HS2
+  beta: 0.0258
+- id: ML_CW4_HS2_b11
+  name: "ML_CW4_HS2_b11"
+  <<: *CW4_HS2
+  beta: 0.0259
+- id: ML_CW4_HS3_b0
+  name: "ML_CW4_HS3_b0"
+  <<: *CW4_HS3
+  beta: 0.022
+- id: ML_CW4_HS3_b1
+  name: "ML_CW4_HS3_b1"
+  <<: *CW4_HS3
+  beta: 0.026
+- id: ML_CW4_HS3_b2
+  name: "ML_CW4_HS3_b2"
+  <<: *CW4_HS3
+  beta: 0.0261
+- id: ML_CW4_HS3_b3
+  name: "ML_CW4_HS3_b3"
+  <<: *CW4_HS3
+  beta: 0.0262
+- id: ML_CW4_HS3_b4
+  name: "ML_CW4_HS3_b4"
+  <<: *CW4_HS3
+  beta: 0.0263
+- id: ML_CW4_HS3_b5
+  name: "ML_CW4_HS3_b5"
+  <<: *CW4_HS3
+  beta: 0.0264
+- id: ML_CW4_HS3_b6
+  name: "ML_CW4_HS3_b6"
+  <<: *CW4_HS3
+  beta: 0.0265
+- id: ML_CW4_HS3_b7
+  name: "ML_CW4_HS3_b7"
+  <<: *CW4_HS3
+  beta: 0.0266
+- id: ML_CW4_HS3_b8
+  name: "ML_CW4_HS3_b8"
+  <<: *CW4_HS3
+  beta: 0.0267
+- id: ML_CW4_HS3_b9
+  name: "ML_CW4_HS3_b9"
+  <<: *CW4_HS3
+  beta: 0.0268
+- id: ML_CW4_HS3_b10
+  name: "ML_CW4_HS3_b10"
+  <<: *CW4_HS3
+  beta: 0.0269
+- id: ML_CW4_HS3_b11
+  name: "ML_CW4_HS3_b11"
+  <<: *CW4_HS3
+  beta: 0.027
+- id: ML_CW4_HS4_b0
+  name: "ML_CW4_HS4_b0"
+  <<: *CW4_HS4
+  beta: 0.022
+- id: ML_CW4_HS4_b1
+  name: "ML_CW4_HS4_b1"
+  <<: *CW4_HS4
+  beta: 0.0271
+- id: ML_CW4_HS4_b2
+  name: "ML_CW4_HS4_b2"
+  <<: *CW4_HS4
+  beta: 0.0272
+- id: ML_CW4_HS4_b3
+  name: "ML_CW4_HS4_b3"
+  <<: *CW4_HS4
+  beta: 0.0273
+- id: ML_CW4_HS4_b4
+  name: "ML_CW4_HS4_b4"
+  <<: *CW4_HS4
+  beta: 0.0274
+- id: ML_CW4_HS4_b5
+  name: "ML_CW4_HS4_b5"
+  <<: *CW4_HS4
+  beta: 0.0275
+- id: ML_CW4_HS4_b6
+  name: "ML_CW4_HS4_b6"
+  <<: *CW4_HS4
+  beta: 0.0276
+- id: ML_CW4_HS4_b7
+  name: "ML_CW4_HS4_b7"
+  <<: *CW4_HS4
+  beta: 0.0277
+- id: ML_CW4_HS4_b8
+  name: "ML_CW4_HS4_b8"
+  <<: *CW4_HS4
+  beta: 0.0278
+- id: ML_CW4_HS4_b9
+  name: "ML_CW4_HS4_b9"
+  <<: *CW4_HS4
+  beta: 0.0279
+- id: ML_CW4_HS4_b10
+  name: "ML_CW4_HS4_b10"
+  <<: *CW4_HS4
+  beta: 0.028
+- id: ML_CW4_HS4_b11
+  name: "ML_CW4_HS4_b11"
+  <<: *CW4_HS4
+  beta: 0.0281
+- id: ML_CW4_HS5_b0
+  name: "ML_CW4_HS5_b0"
+  <<: *CW4_HS5
+  beta: 0.022
+- id: ML_CW4_HS5_b1
+  name: "ML_CW4_HS5_b1"
+  <<: *CW4_HS5
+  beta: 0.0279
+- id: ML_CW4_HS5_b2
+  name: "ML_CW4_HS5_b2"
+  <<: *CW4_HS5
+  beta: 0.028
+- id: ML_CW4_HS5_b3
+  name: "ML_CW4_HS5_b3"
+  <<: *CW4_HS5
+  beta: 0.0281
+- id: ML_CW4_HS5_b4
+  name: "ML_CW4_HS5_b4"
+  <<: *CW4_HS5
+  beta: 0.0282
+- id: ML_CW4_HS5_b5
+  name: "ML_CW4_HS5_b5"
+  <<: *CW4_HS5
+  beta: 0.0283
+- id: ML_CW4_HS5_b6
+  name: "ML_CW4_HS5_b6"
+  <<: *CW4_HS5
+  beta: 0.0284
+- id: ML_CW4_HS5_b7
+  name: "ML_CW4_HS5_b7"
+  <<: *CW4_HS5
+  beta: 0.0285
+- id: ML_CW4_HS5_b8
+  name: "ML_CW4_HS5_b8"
+  <<: *CW4_HS5
+  beta: 0.0286
+- id: ML_CW4_HS5_b9
+  name: "ML_CW4_HS5_b9"
+  <<: *CW4_HS5
+  beta: 0.0287
+- id: ML_CW4_HS5_b10
+  name: "ML_CW4_HS5_b10"
+  <<: *CW4_HS5
+  beta: 0.0288
+- id: ML_CW4_HS5_b11
+  name: "ML_CW4_HS5_b11"
+  <<: *CW4_HS5
+  beta: 0.0289
+- id: ML_CW5_HS1_b0
+  name: "ML_CW5_HS1_b0"
+  <<: *CW5_HS1
+  beta: 0.022
+- id: ML_CW5_HS1_b1
+  name: "ML_CW5_HS1_b1"
+  <<: *CW5_HS1
+  beta: 0.0254
+- id: ML_CW5_HS1_b2
+  name: "ML_CW5_HS1_b2"
+  <<: *CW5_HS1
+  beta: 0.0255
+- id: ML_CW5_HS1_b3
+  name: "ML_CW5_HS1_b3"
+  <<: *CW5_HS1
+  beta: 0.0256
+- id: ML_CW5_HS1_b4
+  name: "ML_CW5_HS1_b4"
+  <<: *CW5_HS1
+  beta: 0.0257
+- id: ML_CW5_HS1_b5
+  name: "ML_CW5_HS1_b5"
+  <<: *CW5_HS1
+  beta: 0.0258
+- id: ML_CW5_HS1_b6
+  name: "ML_CW5_HS1_b6"
+  <<: *CW5_HS1
+  beta: 0.0259
+- id: ML_CW5_HS1_b7
+  name: "ML_CW5_HS1_b7"
+  <<: *CW5_HS1
+  beta: 0.026
+- id: ML_CW5_HS1_b8
+  name: "ML_CW5_HS1_b8"
+  <<: *CW5_HS1
+  beta: 0.0261
+- id: ML_CW5_HS1_b9
+  name: "ML_CW5_HS1_b9"
+  <<: *CW5_HS1
+  beta: 0.0262
+- id: ML_CW5_HS1_b10
+  name: "ML_CW5_HS1_b10"
+  <<: *CW5_HS1
+  beta: 0.0263
+- id: ML_CW5_HS1_b11
+  name: "ML_CW5_HS1_b11"
+  <<: *CW5_HS1
+  beta: 0.0264
+- id: ML_CW5_HS2_b0
+  name: "ML_CW5_HS2_b0"
+  <<: *CW5_HS2
+  beta: 0.022
+- id: ML_CW5_HS2_b1
+  name: "ML_CW5_HS2_b1"
+  <<: *CW5_HS2
+  beta: 0.0263
+- id: ML_CW5_HS2_b2
+  name: "ML_CW5_HS2_b2"
+  <<: *CW5_HS2
+  beta: 0.0264
+- id: ML_CW5_HS2_b3
+  name: "ML_CW5_HS2_b3"
+  <<: *CW5_HS2
+  beta: 0.0265
+- id: ML_CW5_HS2_b4
+  name: "ML_CW5_HS2_b4"
+  <<: *CW5_HS2
+  beta: 0.0266
+- id: ML_CW5_HS2_b5
+  name: "ML_CW5_HS2_b5"
+  <<: *CW5_HS2
+  beta: 0.0267
+- id: ML_CW5_HS2_b6
+  name: "ML_CW5_HS2_b6"
+  <<: *CW5_HS2
+  beta: 0.0268
+- id: ML_CW5_HS2_b7
+  name: "ML_CW5_HS2_b7"
+  <<: *CW5_HS2
+  beta: 0.0269
+- id: ML_CW5_HS2_b8
+  name: "ML_CW5_HS2_b8"
+  <<: *CW5_HS2
+  beta: 0.027
+- id: ML_CW5_HS2_b9
+  name: "ML_CW5_HS2_b9"
+  <<: *CW5_HS2
+  beta: 0.0271
+- id: ML_CW5_HS2_b10
+  name: "ML_CW5_HS2_b10"
+  <<: *CW5_HS2
+  beta: 0.0272
+- id: ML_CW5_HS2_b11
+  name: "ML_CW5_HS2_b11"
+  <<: *CW5_HS2
+  beta: 0.0273
+- id: ML_CW5_HS3_b0
+  name: "ML_CW5_HS3_b0"
+  <<: *CW5_HS3
+  beta: 0.022
+- id: ML_CW5_HS3_b1
+  name: "ML_CW5_HS3_b1"
+  <<: *CW5_HS3
+  beta: 0.027
+- id: ML_CW5_HS3_b2
+  name: "ML_CW5_HS3_b2"
+  <<: *CW5_HS3
+  beta: 0.0271
+- id: ML_CW5_HS3_b3
+  name: "ML_CW5_HS3_b3"
+  <<: *CW5_HS3
+  beta: 0.0272
+- id: ML_CW5_HS3_b4
+  name: "ML_CW5_HS3_b4"
+  <<: *CW5_HS3
+  beta: 0.0273
+- id: ML_CW5_HS3_b5
+  name: "ML_CW5_HS3_b5"
+  <<: *CW5_HS3
+  beta: 0.0274
+- id: ML_CW5_HS3_b6
+  name: "ML_CW5_HS3_b6"
+  <<: *CW5_HS3
+  beta: 0.0275
+- id: ML_CW5_HS3_b7
+  name: "ML_CW5_HS3_b7"
+  <<: *CW5_HS3
+  beta: 0.0276
+- id: ML_CW5_HS3_b8
+  name: "ML_CW5_HS3_b8"
+  <<: *CW5_HS3
+  beta: 0.0277
+- id: ML_CW5_HS3_b9
+  name: "ML_CW5_HS3_b9"
+  <<: *CW5_HS3
+  beta: 0.0278
+- id: ML_CW5_HS3_b10
+  name: "ML_CW5_HS3_b10"
+  <<: *CW5_HS3
+  beta: 0.0279
+- id: ML_CW5_HS3_b11
+  name: "ML_CW5_HS3_b11"
+  <<: *CW5_HS3
+  beta: 0.028
+- id: ML_CW5_HS4_b0
+  name: "ML_CW5_HS4_b0"
+  <<: *CW5_HS4
+  beta: 0.022
+- id: ML_CW5_HS4_b1
+  name: "ML_CW5_HS4_b1"
+  <<: *CW5_HS4
+  beta: 0.028
+- id: ML_CW5_HS4_b2
+  name: "ML_CW5_HS4_b2"
+  <<: *CW5_HS4
+  beta: 0.0281
+- id: ML_CW5_HS4_b3
+  name: "ML_CW5_HS4_b3"
+  <<: *CW5_HS4
+  beta: 0.0282
+- id: ML_CW5_HS4_b4
+  name: "ML_CW5_HS4_b4"
+  <<: *CW5_HS4
+  beta: 0.0283
+- id: ML_CW5_HS4_b5
+  name: "ML_CW5_HS4_b5"
+  <<: *CW5_HS4
+  beta: 0.0284
+- id: ML_CW5_HS4_b6
+  name: "ML_CW5_HS4_b6"
+  <<: *CW5_HS4
+  beta: 0.0285
+- id: ML_CW5_HS4_b7
+  name: "ML_CW5_HS4_b7"
+  <<: *CW5_HS4
+  beta: 0.0286
+- id: ML_CW5_HS4_b8
+  name: "ML_CW5_HS4_b8"
+  <<: *CW5_HS4
+  beta: 0.0287
+- id: ML_CW5_HS4_b9
+  name: "ML_CW5_HS4_b9"
+  <<: *CW5_HS4
+  beta: 0.0288
+- id: ML_CW5_HS4_b10
+  name: "ML_CW5_HS4_b10"
+  <<: *CW5_HS4
+  beta: 0.0289
+- id: ML_CW5_HS4_b11
+  name: "ML_CW5_HS4_b11"
+  <<: *CW5_HS4
+  beta: 0.029
+- id: ML_CW5_HS5_b0
+  name: "ML_CW5_HS5_b0"
+  <<: *CW5_HS5
+  beta: 0.022
+- id: ML_CW5_HS5_b1
+  name: "ML_CW5_HS5_b1"
+  <<: *CW5_HS5
+  beta: 0.0288
+- id: ML_CW5_HS5_b2
+  name: "ML_CW5_HS5_b2"
+  <<: *CW5_HS5
+  beta: 0.0289
+- id: ML_CW5_HS5_b3
+  name: "ML_CW5_HS5_b3"
+  <<: *CW5_HS5
+  beta: 0.029
+- id: ML_CW5_HS5_b4
+  name: "ML_CW5_HS5_b4"
+  <<: *CW5_HS5
+  beta: 0.0291
+- id: ML_CW5_HS5_b5
+  name: "ML_CW5_HS5_b5"
+  <<: *CW5_HS5
+  beta: 0.0292
+- id: ML_CW5_HS5_b6
+  name: "ML_CW5_HS5_b6"
+  <<: *CW5_HS5
+  beta: 0.0293
+- id: ML_CW5_HS5_b7
+  name: "ML_CW5_HS5_b7"
+  <<: *CW5_HS5
+  beta: 0.0294
+- id: ML_CW5_HS5_b8
+  name: "ML_CW5_HS5_b8"
+  <<: *CW5_HS5
+  beta: 0.0295
+- id: ML_CW5_HS5_b9
+  name: "ML_CW5_HS5_b9"
+  <<: *CW5_HS5
+  beta: 0.0296
+- id: ML_CW5_HS5_b10
+  name: "ML_CW5_HS5_b10"
+  <<: *CW5_HS5
+  beta: 0.0297
+- id: ML_CW5_HS5_b11
+  name: "ML_CW5_HS5_b11"
+  <<: *CW5_HS5
+  beta: 0.0298
+
