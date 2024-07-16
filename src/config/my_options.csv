@@ -1,0 +1,11 @@
+option,value
+analysis_name,covid_networks
+check_fit_consistency,TRUE
+plot_custom,TRUE
+plot_assumptions,FALSE
+plot_baseline,FALSE
+plot_scenarios,FALSE
+emulator_samples,300
+emulator_seeds,10
+overwrite_simulations,FALSE
+n_seeds_analysis,20

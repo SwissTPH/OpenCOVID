@@ -16,6 +16,17 @@ previously_infected: 0.3
 # Number of days over which these past infections have occured
 n_days_init: -360
 
+# Effective reproduction number at analysis start
+r_eff: 1.0  # Calibrated in step 1
+
+# Time window (in days) for calculating R_eff
+#
+# See: cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
+r_eff_window: 7
+
+# Transmission probability at maximum infecitivty, susceptibility, and seasonality
+beta: 0.05
+
 # Seasonality profile
 seasonality_fn: 
   fn: "cospi"
@@ -29,39 +40,6 @@ seasonality_scaler: 0.3
 # Number of days to shift seasonality start
 seasonality_shift: 120  # 0 represents mid-winter
 
-# ---- Air pollution factors ----
-
-# Increase in pollutant per m^3 of air
-air_pollution_exposure: 0
-
-# Increase in susceptibility/severity per microgram / m^3 of air polutant
-#
-# SOURCES: xxx
-air_pollution:
-  susceptibility: 1.0  # Increase in susceptibility per microgram / m^3 of air polutant
-  severity: 1.0        # Increase in severity per microgram / m^3 of air polutant
-  
-# Relationship between pollution exposure and susceptibility/severity
-air_pollution_relationship: "linear"  # OPTIONS: 'linear', 'log' or 'log10'
-
-# ---- Effective reproduction number ----
-
-# Effective reproduction number at analysis start
-Re: 1.0  # Can be calibrated in step 1 (set calibration_type: "Re_user" to use)
-
-# Time window (in days) for calculating Re
-#
-# See: cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
-Re_window: 7  
-
-# Transmission probability at maximum infecitivty, susceptibility, and seasonality
-beta: 0.002 # Arbitrary, but gives ~10 contacts for reasonable Re
-
-# Average number of contacts per person (placeholder)
-#
-# NOTE: This parameter is calibrated in most use cases (see calibration_parameters)
-contacts: 10.0
-
 # ---- Network structure ----
 
 # Network structure
@@ -71,8 +49,39 @@ network_structure: "age"
 
 # Network layers - only relevant if network structure is set to "layers"
 #
-# OPTIONS: "household", "school", "workplace"
-network_layers: household, school, workplace
+# OPTIONS: "household", "school", and/or "workplace"
+network_layers: household #, school, workplace, 
+
+# Layer properties - only relevant if network structure is set to "layers"
+layer_properties:
+  household:
+    distribution: "normal"
+    mean: 2.5
+    sd: 1.0
+    age_min: 0
+    age_max: Inf
+    beta_scaler: 1.0
+  school:
+    cluster_sampling:
+      method: static
+      value: 10
+    contacts: 3.0
+    age_min: 0
+    age_max: 20
+    beta_scaler: 1.0
+  workplace:
+    cluster_sampling:
+        method: static
+        value: 10
+    contacts: 3.0
+    age_min: 21
+    age_max: 65
+    beta_scaler: 1.0
+
+# Sampling technique for community layer
+#
+# OPTIONS: "static" or "dynamic"
+community_sampling: "static"
 
 # Countries to pull network matrix data from
 contact_matrix_countries: DE, IT, FR  # ISO Alpha-2 country codes (en.wikipedia.org/wiki/ISO_3166-1_alpha-2)
@@ -86,10 +95,10 @@ import_constant: 1.5  # per 100k people
 
 # Primary variant (properties relative to prognosis probabilities)
 variant_primary:
-  id: omicron
-  name: "Omicron"
-  infectivity: 14.4
-  severity: 1.54
+  id: delta
+  name: "Delta (B.1.617.2)"
+  infectivity: 1.0
+  severity: 1.0
   immuno_escape: 0.0
 
 # Novel variant properties (properties relative to primary variant)
@@ -111,57 +120,50 @@ viral_load_shape_fn:
   
 # Immunity through natural infection
 acquired_immunity:
-  fn: "logistic_inv"
-  slope: 1.8
-  mid: 105
-  lb: 0.15
-  ub: 0.95
+  value: 0.83
+  decay_init: 180
+  decay_duration: 360
   
 # ---- Priority and risk groups ----
 
 # Priority group definitions
 priority_groups: 
-- id: high_priority
-  name: "65+ or comorbidities"
+- id: teachers
+  name: "teacher == TRUE"
   priority: 1
-  condition: "age >= 65 | comorbidities == TRUE"
-- id: low_priority
-  name: "18-65 year olds"
+  condition: "teacher == TRUE"
+- id: above65comorb
+  name: "65+ or comorbidities"
   priority: 2
-  condition: "age >= 18 & age < 65"
+  condition: "age >= 65 | comorbidities == TRUE"
+- id: above5
+  name: "5 - 65 year old"
+  priority: 3
+  condition: "age >= 5 & age < 65"
   
 # Risk groups
 risk_groups:
   comorbidities:
-    id: "c"
     age_lower: 0
     age_upper: 75
-    age_dist:
-      fn: "dunif"
     probability: 0.08
   healthcare_worker:
-    id: "h"
     age_lower: 18
     age_upper: 65
-    age_dist:
-      fn: "dunif"
     probability: 0.10
-  vax_unsuitable:
-    id: "v"
-    age_lower: 12
-    age_upper: 90
-    age_dist:
-      fn: "dbeta"
-      shape1: 4
-      shape2: 1
-    probability: 0.035  # Approx 2% of population
-  
+
+# Use random teacher sampling rather than layer-based sampling
+overwrite_teacher_sampling: no
+
+# Take out random contacts between ppl of working age rather than random contacts between adults
+overwrite_workplace_sampling: no
+
 # ---- Vaccination details ----
   
 # Vaccine definition and immunity profile
 vaccine_defintion:
   name: "mRNA vaccine"
-  infection_blocking: 0.85  # Proportion of efficacy that blocks infection
+  transmission_blocking: 0.85  # Proportion of efficacy that blocks transmission
   efficacy:
     fn: ["logistic_inv", "logistic_inv"]
     slope: [1.8, 1.8]
@@ -175,86 +177,78 @@ vaccine_defintion:
     mid: 105
     lb: 0.15
     ub: 0.85
-
-# Vaccine updates that effectively protect from exposure to all currently circulating variants
-vaccine_update:
-- id: next_gen_vaccine
-  name: "Next generation vaccine"
-  release_day: no  # Set to integer to use
-
-# Primary vaccination rollout (use -ve for past dates, +ve for future dates)
+  
+# Vaccination history
+vaccine_history: 
+- id: teachers
+  init_coverage: 0.0
+  init_start: 0  # Days into the past that vaccination program began
+  init_end: 0       # Days into the past that vaccination program ended (set to zero if ongoing)
+- id: above65comorb
+  init_coverage: 0.0
+  init_start: 0  # Days into the past that vaccination program began
+  init_end: 0       # Days into the past that vaccination program ended (set to zero if ongoing)
+- id: above5
+  init_coverage: 0.0
+  init_start: 0
+  init_end: 0
+  
+# Future vaccination rollout
 vaccine_rollout: 
-- id: high_priority
-  coverage: 0.8
-  start: -180   # Date index for primary vaccination to begin
-  end: -150     # Date index for primary vaccination to reach 'coverage'
-- id: low_priority
-  coverage: 0.6
-  start: -150
-  end: -120
+- id: teachers
+  max_coverage: 0.0
+  max_start: 0  # Days into the future that vaccination scale up will began (set to zero if ongoing)
+  max_end: 0   # Days into the future that vaccination scale up will reach max coverage
+- id: above65comorb
+  max_coverage: 0.0
+  max_start: 0  # Days into the future that vaccination scale up will began (set to zero if ongoing)
+  max_end: 0   # Days into the future that vaccination scale up will reach max coverage
+- id: above5
+  max_coverage: 0.0
+  max_start: 0
+  max_end: 0
   
 # Vaccine booster rollout (only groups to recieve a booster need to be specified)
-booster_doses: 1000  # Maximum number of doses per day (per 100,000 people)
+booster_doses: 0  # Maximum number of doses per day (per 100,000 people)
 booster_rollout:
-- id: high_priority
+- id: teachers
   probability: 0.0   # Probability of accepting/receiving a booster dose
   cycle_period: 365  # Booster dose administered every cycle_period days
   start: 0           # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
   force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
   force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
-
-# Per vaccine dose risk scaler for ICU and death (assumed to not wane over time)
-#
-# See: www.ncbi.nlm.nih.gov/pmc/articles/PMC9278128/ 
-# Also see exposure_response relationship parameters
-dose_response:
-  icu_risk_factor: 0.66  # [95% CI 0.62-0.71]  
-  death_risk_factor: 0.78  # [95% CI 0.72-0.84]
+- id: above65comorb
+  probability: 0.0   # Probability of accepting/receiving a booster dose
+  cycle_period: 365  # Booster dose administered every cycle_period days
+  start: 0           # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+  force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
+- id: above5
+  probability: 0.0   # Probability of accepting/receiving a booster dose
+  cycle_period: 365  # Booster dose administered every cycle_period days
+  start: 0           # When booster started to be available (-ve for past, +ve for future, 0 for start of analysis period)
+  force_start: no    # Force a booster at this time regardless of when initial vaccination was (set to 'no' to turn off)
+  force_end: no      # Force an end point to stop cyclic boosters (set to 'no' to turn off)
   
-# Maximum number of vaccine doses to count per person
-max_dose_count: 10
-
-# ---- PrEP details ----
-
-# Pre-exposure prophylaxis immunity profile
-prep_definition:
-  name: "Monoclonal-antibody PrEP"
-  infection_blocking: 0.0  # TODO: Not yet implemented (may not even need it)
-  efficacy:
-    fn: "logistic_inv"
-    slope: 1.8
-    mid: 180 # From nejm.org/doi/full/10.1056/NEJMoa2116620
-    lb: 0.7
-    ub: 0.98
-    
-# Pre-exposure prophylaxis coverage scale up
-prep_rollout: 
-  coverage: 0.0  # Of those of unsuitable for vaccination
-  start: 0
-  end: 0
-  # time_dist:
-  #   fn: "dunif"
-    
 # ---- Treatment details ----
 
 # Probability of treatment given diagnosis
-treat_rollout:
+treatment:
 - id: high_priority
   # product: "product1"
   vaccine_condition: "none"  # OPTIONS: "vaccinated", "unvaccinated", "none"
-  mild: yes      # Flag for treating those with mild symptoms
-  severe: yes    # Flag for treating those with severe symptoms (in hospital)
-  crit: yes      # Flag for treating those in critical condition (in ICU)
-  coverage: 0.0  # Coverage of all those eligible (defined by mild, severe, crit flags)
-  available: 0   # Date index of when treatment becomes available for this group
+  available: 0      # Date index of when treatment becomes available for this group
+  prob_mild: 0.0    # Probability of treatment if currently mild symptoms
+  prob_severe: 0.0  # Probability of treatment if currently severe symptoms
+  prob_crit: 0.0    # Probability of treatment if currently critical symptoms
+  
 - id: low_priority
   # product: "product2"
   vaccine_condition: "none"
-  mild: yes
-  severe: yes
-  crit: yes
-  coverage: 0.0
   available: 0
+  prob_mild: 0.0
+  prob_severe: 0.0
+  prob_crit: 0.0
   
 # Delay from diagnosis to treatment effect
 treat_delay: 5
@@ -278,9 +272,30 @@ treat_products:
 
 # ---- Other interventions ----
 
-# Future non-pharmaceutical intervention effect
-npi_effect: 0  # Set to 0 to turn off NPI effect
-npi_scaler: 1 
+# NOTES:
+#  1) Model uses either 'npi_ochi' or 'npi_effect' to define NPIs over time
+#  2) If npi_ochi::use is set to 'yes', this trumps npi_layers
+#  2) Whichever is used, 'npi_scaler' is used to scale the overall effect on contact reduction
+
+# Pull OCHI data for given country
+npi_ochi:
+  use: no
+  country: CH  # Use ISO Alpha-2 country code
+  start: 2020-03-01
+  
+# Custom NPI effect over time in each layer
+npi_layers:
+- layer: household
+  day1: 1.0
+- layer: school
+  day1: 1.0
+- layer: workplace
+  day1: 1.0
+- layer: community
+  day1: 1.0
+
+# NPI scaling effect: applies to both 'ochi_country' and 'npi_effect'
+npi_scaler: 1  # Set to 0 to turn off NPIs
 
 # Testing and diagnosis
 diagnosis_delay: 3  # Delay between symptom onset and test/diagnosis
@@ -317,9 +332,6 @@ isolation:
 
 # ---- Biological and epidemiological parameters ----
 
-# Probability of asymptomatic infection (assumed not be age-specific)
-proportion_asymptomatic: 0.33
-  
 # Age-related probabiliy of severe disease given person is symptomatic
 severe_symptom_age:
   fn: "logistic"
@@ -345,24 +357,20 @@ death_critical_age:
   upper: 2
   
 # Scale factors for death when critical in/out of ICU
-death_critical_icu: 1.0
-death_critical_non_icu: 3.0
+death_critical_icu: 0.2
+death_critical_non_icu:	0.95
+
+# Probability of asymptomatic infection
+proportion_asymptomatic: 0.33
 
 # Probability of seeking care if severe
 seek_hospital: 0.75
 
-# Per exposure risk scaler for ICU and death (assumed to not wane over time)
-#
-# See: 
-#  1) www.sciencedirect.com/science/article/pii/S016344532200010X
-#  2) www.thelancet.com/journals/lancet/article/PIIS0140-6736(22)00089-7/fulltext
-# Also see dose_response relationship parameters
-exposure_response:
-  icu_risk_factor: 0.4  # Calculated from (1)
-  death_risk_factor: 0.65  # Calculated from (1)
-  
+# Flag for replacing dead people
+replace_dead: no
+
 # Maximum number of infections to count per person
-max_infection_count: 10
+max_infections: 5
 
 # Disease state durations
 durations:
@@ -413,133 +421,98 @@ durations:
 
 # ---- Demography ----
 
-# Age-related probabiliy of non-COVID 'natural' death
-natural_death_age:
-  fn: "logistic"
-  slope: 10
-  mid: 90
-  lower: 0
-  upper: 0.0008
-
-# Flag for modelling non-COVID 'natural' deaths
-natural_deaths: yes
-
-# Flag for replacing COVID-related deceased with newborns
-#
-# NOTE: natural deaths are replaced with newborns regardless
-replace_deceased: yes
-
-# Flag for ageing people each year
-annual_ageing: yes
-
 # 90 yearly bins for ages [0-1], (1-2], ..., (89-90+] required
 demography:
-  1: 0.010576408
-  2: 0.010811583
-  3: 0.010896688
-  4: 0.010928522
-  5: 0.010773903
-  6: 0.010815481
-  7: 0.010274967
-  8: 0.010219097
-  9: 0.010108005
-  10: 0.010069676
-  11: 0.009903364
-  12: 0.009705868
-  13: 0.009469393
-  14: 0.009229020
-  15: 0.009076351
-  16: 0.009010736
-  17: 0.008773611
-  18: 0.008846372
-  19: 0.008671615
-  20: 0.009396632
-  21: 0.009362849
-  22: 0.009643501
-  23: 0.010252229
-  24: 0.010779750
-  25: 0.011226064
-  26: 0.012029040
-  27: 0.013095126
-  28: 0.014302188
-  29: 0.015094119
-  30: 0.015867860
-  31: 0.016164753
-  32: 0.016590278
-  33: 0.016572737
-  34: 0.016617563
-  35: 0.016702019
-  36: 0.016664988
-  37: 0.016307028
-  38: 0.016560394
-  39: 0.016357701
-  40: 0.016451901
-  41: 0.015739878
-  42: 0.015550827
-  43: 0.014973933
-  44: 0.014849848
-  45: 0.014560101
-  46: 0.014482792
-  47: 0.014238521
-  48: 0.014273603
-  49: 0.014756298
-  50: 0.014849198
-  51: 0.015016160
-  52: 0.015149989
-  53: 0.015090871
-  54: 0.015155187
-  55: 0.014944048
-  56: 0.014902470
-  57: 0.014335320
-  58: 0.013497263
-  59: 0.012972991
-  60: 0.012270712
-  61: 0.011689269
-  62: 0.011112374
-  63: 0.010712186
-  64: 0.010361371
-  65: 0.009848143
-  66: 0.009359601
-  67: 0.008911338
-  68: 0.009055562
-  69: 0.008541034
-  70: 0.008761267
-  71: 0.008426694
-  72: 0.008458528
-  73: 0.008419548
-  74: 0.008336392
-  75: 0.008068084
-  76: 0.007888779
-  77: 0.007581491
-  78: 0.007091001
-  79: 0.006626496
-  80: 0.005900830
-  81: 0.005523380
-  82: 0.005232333
-  83: 0.004715207
-  84: 0.004624255
-  85: 0.004337107
-  86: 0.003957058
-  87: 0.003471764
-  88: 0.003121599
-  89: 0.002766237
-  90: 0.011291680
-  
-# ---- Health economics ----
-
-# Cost units (used for plotting purposes only)
-currency: "USD"
-
-# Costs per event (overall, NOT per day)
-healthcare_costs:
-  hospital: 1000  # Cost per hospitalisation
-  icu: 5000       # Additional cost per ICU entry
-
-# Cost per pharmaceutical intervention unit
-intervention_costs:
-  vaccine: 20    # Cost per vaccine dose
-  prep: 20       # Cost per PrEP cose
-  treatment: 20  # Cost per treatment round
+  age1: 0.010576408
+  age2: 0.010811583
+  age3: 0.010896688
+  age4: 0.010928522
+  age5: 0.010773903
+  age6: 0.010815481
+  age7: 0.010274967
+  age8: 0.010219097
+  age9: 0.010108005
+  age10: 0.010069676
+  age11: 0.009903364
+  age12: 0.009705868
+  age13: 0.009469393
+  age14: 0.009229020
+  age15: 0.009076351
+  age16: 0.009010736
+  age17: 0.008773611
+  age18: 0.008846372
+  age19: 0.008671615
+  age20: 0.009396632
+  age21: 0.009362849
+  age22: 0.009643501
+  age23: 0.010252229
+  age24: 0.010779750
+  age25: 0.011226064
+  age26: 0.012029040
+  age27: 0.013095126
+  age28: 0.014302188
+  age29: 0.015094119
+  age30: 0.015867860
+  age31: 0.016164753
+  age32: 0.016590278
+  age33: 0.016572737
+  age34: 0.016617563
+  age35: 0.016702019
+  age36: 0.016664988
+  age37: 0.016307028
+  age38: 0.016560394
+  age39: 0.016357701
+  age40: 0.016451901
+  age41: 0.015739878
+  age42: 0.015550827
+  age43: 0.014973933
+  age44: 0.014849848
+  age45: 0.014560101
+  age46: 0.014482792
+  age47: 0.014238521
+  age48: 0.014273603
+  age49: 0.014756298
+  age50: 0.014849198
+  age51: 0.015016160
+  age52: 0.015149989
+  age53: 0.015090871
+  age54: 0.015155187
+  age55: 0.014944048
+  age56: 0.014902470
+  age57: 0.014335320
+  age58: 0.013497263
+  age59: 0.012972991
+  age60: 0.012270712
+  age61: 0.011689269
+  age62: 0.011112374
+  age63: 0.010712186
+  age64: 0.010361371
+  age65: 0.009848143
+  age66: 0.009359601
+  age67: 0.008911338
+  age68: 0.009055562
+  age69: 0.008541034
+  age70: 0.008761267
+  age71: 0.008426694
+  age72: 0.008458528
+  age73: 0.008419548
+  age74: 0.008336392
+  age75: 0.008068084
+  age76: 0.007888779
+  age77: 0.007581491
+  age78: 0.007091001
+  age79: 0.006626496
+  age80: 0.005900830
+  age81: 0.005523380
+  age82: 0.005232333
+  age83: 0.004715207
+  age84: 0.004624255
+  age85: 0.004337107
+  age86: 0.003957058
+  age87: 0.003471764
+  age88: 0.003121599
+  age89: 0.002766237
+  age90: 0.011291680
 
 # ---- Model metrics ----
 
@@ -547,7 +520,7 @@ intervention_costs:
 model_metrics:
   all_new_infections:
     report: yes
-    by: age, priority_group, vaccine_type, variant
+    by: age, priority_group, variant, layer
   new_local_infections:
     report: no
     by: none
@@ -555,20 +528,20 @@ model_metrics:
     report: no
     by: none
   confirmed:
-    report: yes
+    report: no
     by: none
   deaths:
     report: yes
-    by: priority_group, vaccine_type, vaccine_doses, variant
+    by: age, priority_group, variant
   hospital_beds:
     report: yes
-    by: priority_group, vaccine_type, vaccine_doses
+    by: age, priority_group
   hospital_admissions:
-    report: no
-    by: none
+    report: yes
+    by: age, priority_group
   icu_beds:
     report: yes
-    by: priority_group, vaccine_type, vaccine_doses
+    by: age, priority_group
   icu_admissions:
     report: no
     by: none
@@ -585,7 +558,7 @@ model_metrics:
     report: no
     by: none
   recovered:
-    report: no
+    report: yes
     by: none
   n_vaccinated:
     report: no
@@ -613,32 +586,14 @@ model_metrics:
     by: none
   n_doses:
     report: yes
-    by: priority_group, vaccine_type, vaccine_doses
+    by: priority_group
   total_doses:
     report: yes
-    by: priority_group, vaccine_type, vaccine_doses
-  n_prep:
-    report: no
-    by: none
-  total_prep:
-    report: yes
-    by: none
-  prep_coverage:
-    report: yes
-    by: none
-  prep_coverage_pop:
-    report: no
-    by: none
-  n_treat:
-    report: no
-    by: none
-  total_treat:
-    report: no
-    by: none
-  n_treat_success:
+    by: priority_group
+  treated:
     report: yes
     by: priority_group
-  total_treat_success:
+  treated_total:
     report: yes
     by: priority_group
   treatment_coverage:
@@ -647,18 +602,11 @@ model_metrics:
   treatment_coverage_pop:
     report: no  # Available soon!
     by: none
-  natural_deaths:
-    report: no
-    by: age
-  births:
-    report: no
-  pop_age:
-    report: yes
   n_infections: 
     report: yes
   variant_prevalence:
     report: yes
-  Re:
+  R_effective:
     report: yes
   seroprevalence:
     report: yes
@@ -668,103 +616,25 @@ model_metrics:
     report: no
   seasonality:
     report: yes
+  average_beta: 
+    report: yes
   contact_reduction:
-    report: no
-  healthcare_costs:
-    report: no
-  intervention_costs:
-    report: no
-  overall_costs:
     report: yes
     
 # ---- Calibration settings ----
-  
-# Type of calibration to perform
-#
-# OPTIONS:
-#   Re_user: Value of 'Re' as set by the user
-#   Re_data: Value of 'Re' as defined by data
-#  epi_data: Fitting to temporal epidemiological data
-calibration_type: "Re_user"
+
+# Number of contacts placeholder - this is fitted to achieve desired R_eff    
+contacts: 10.0
 
 # Define parameters to be calibrated
-calibration_parameters:
+calibration:
 - param: "contacts"
-  lower: 2
+  lower: 1
   upper: 20
-  synth: 12  # Used for generating synthetic data (to test fitting algorithm)
-
-# Additional options for Re_data and epi_data calibration
-calibration_options: 
-  data_synthetic: no
-  data_source:
-    epi: "ECDC"  # OPTIONS: 'ECDC' only
-    Re: "ETH"  # OPTIONS: 'ECDC' or 'ETH'
-  country: IT
-  country_pop: 60000000
-  data_end: 2022-08-01
-  data_days: 90  # For epi_data only (Re_window used for Re_data)
-  data_burn_in: 30  # Number of days to simulate before data kicks in (for epi_data only)
-  offset_synthetic: 0.05  # Standard deviation for offseting synthetically generated data
-  
-# Time period to calibrate to (epi_data only)
-calibration_time_period: "month" # OPTIONS: "day", "week", "month", "quater", "year" 
-
-# Weights for epi_data calibration only (set metrics to 0 to turn off)
-calibration_weights:
-  time: "none"  # OPTIONS: 'none', 'weak', 'strong', 'exponential'
-  peak: "none"  # OPTIONS: 'none', 'weak', 'strong'
-  metric:
-    confirmed: 1.0
-    deaths: 1.0
-    hospital_admissions: 1.0
-    icu_admissions: 1.0
-    hospital_beds: 0.0
-    icu_beds: 0.0
-
-# Strength of objective function scaling
-objective_scaling: "none"  # OPTIONS: 'none', 'weak', or 'strong'
-
-# Emulator options
-emulator:
-  init_samples: 250       # Initial number of paramter sets
-  seeds: 8                # Number of stochastic runs per sample
-  test_train_split: 0.15  # Test-train split of samples (15-20% is reasonable)
-  gp_kernel: "Matern5_2"  # Select GP kernel function (see ?mleHetGP)
-  gp_max_iter: 1000       # Maximum number of iterations of GP algorithm
-
-# Adaptive sampling options
-#
-# NOTE: Adaptive sampling is very useful for fitting to epi_data - not so much for Re
-adaptive_sampling:
-  rounds: 1                   # Number of rounds (set to 0 to turn adaptive sampling off)
-  acquisition_points: 10000   # Number of randomly sampled points to evaluate for resampling
-  min_value_accepted: 0.0001  # Lower bound for expected improvment we'll consider
-  max_samples_accepted: 100   # Take at maximum n new parameter sets per round
-  
-# Optimisation options (for finding global minimum of emulated space)
-optimisation:
-  optim_runs: 20  # Number of times to perform optimisation
-  optim_iters: 100  # Number of ASD iterations
-  
-# Time period for fitting to Re
-Re_fit:
-  start_day: 10  # Start fitting from day n of simulations
-  n_days: 5      # Take the average over the next n days
   
 # ---- Scenarios ----
-
-# Number of LHC scenario samples to run (if applicable)
-scenario_lhc_samples: 100
-
-# LHC scenario endpoints to fit to (if applicable)
-scenario_lhc_endpoints:
-- id: total_infections
-  metric: "all_new_infections"
-  summarise: "sum"  # OPTIONS: sum, mean, min, max
 
 # Always run a baseline scenario
 scenarios: 
 - id: baseline
   name: "Baseline scenario"
-

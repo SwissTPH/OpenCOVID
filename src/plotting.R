@@ -8,10 +8,25 @@
 # ---------------------------------------------------------
 # Plot metrics over time for multiple metrics, groups, and/or scenarios
 # ---------------------------------------------------------
-plot_temporal = function(o, fig_name, ...) {
+plot_temporal = function(o, fig_name, plot_file = NULL, ...) {
   
-  # Collate and interpret inputs so we know what to plot
-  list[f, baseline] = fig_properties(o, list(...))
+  # ---- Load baseline (or alt baseline) file ----
+ 
+  # Scenarios to plot
+  f = fig_scenarios(o, list(...))
+  
+  # Handle alternative functionality case - file fed in directly
+  if (!is.null(plot_file)) baseline = plot_file
+  else {
+    
+    # Otherwise load baseline file
+    baseline = try_load(o$pth$scenarios, f$baseline_name)
+  }
+  
+  # ---- Figure properties ----
+  
+  # Collate and interpret function inputs so we know what to plot
+  f = fig_properties(o, f, baseline$input, list(...))
   
   # If nothing to plot, return out
   if (f$n_metrics == 0)
@@ -125,68 +140,11 @@ plot_temporal = function(o, fig_name, ...) {
     stop("Value of plot_geom '", f$plot_geom, "' not recognised")
   }
   
-  # ---- Plot data ----
-  
-  # Load fitting details - epi data / Re target contained within
-  fit = load_calibration(o, throw_error = FALSE)
-  
-  # Check whether fitting has used any epi data
-  if (f$fit_target && is.data.table(fit$data)) {
-    
-    # We now calibrate to epi data in a cumulative manner
-    if (f$plot_geom == "line" && f$cumulative == TRUE && f$n_scenarios == 1) {
-      
-      # Apply population scaler and melt into long form
-      fit_data = fit$data %>%
-        filter(!is.na(value), 
-               metric %in% names(f$metric_names)) %>%
-        group_by(metric) %>%
-        mutate(value = cumsum(value)) %>%
-        ungroup() %>%
-        mutate(metric = recode(metric, !!!f$metric_names), 
-               group  = as.character(NA)) %>%
-        setDT()
-      
-      # Join with plotting dataframe to ensure consistency
-      fit_df = plot_df %>%
-        select(date, metric, group) %>%
-        left_join(fit_data, by = c("date", "metric", "group")) %>%
-        mutate(metric = factor(metric, levels = f$metric_names)) %>%
-        filter(!is.na(value))
-      
-      # Plot the data points for relevant metrics
-      g = g + geom_point(data = fit_df, colour = "black", 
-                         shape = 16, size = 1, alpha = 0.7)
-    }
-  }
-  
-  # ---- Effective reproduction number ----
-  
-  # Add a vertical line at 1 if plotting effective reproduction number
-  if ("Re" %in% f$metrics) {
-    Re_name = f$metric_names[["Re"]]
-    
-    # Plot Re = 1 as standard
-    g = g + geom_hline(data    = plot_df[metric == Re_name, ], 
-                       mapping = aes(yintercept = 1), 
-                       colour  = "black")
-    
-    # Check whether we also plot 'target' Re (irrelevant if calibrating to epi data)
-    if (f$fit_target && !is.na(fit$target)) {
-      
-      # Also the Re we've calibrated to (if relevant and desired)
-      g = g + geom_hline(data     = plot_df[metric == Re_name, ], 
-                         mapping  = aes(yintercept = fit$target), 
-                         linetype = "dashed", 
-                         colour   = "black")
-    }
-  }
-  
   # ---- Generate facets ----
   
   # Possible to define custom faceting function, in the form of evaluable string
   if (!is.null(f$facet_custom))
-    eval_str("g = g + ", f$facet_custom)
+    eval(parse(text = paste0("g = g + ", f$facet_custom)))
   
   # Most common use case is to use facet_wrap/grid based on what is being varied
   if (is.null(f$facet_custom)) {
@@ -218,7 +176,20 @@ plot_temporal = function(o, fig_name, ...) {
   
   # Tag facets if desired
   if (f$facet_labels == TRUE)
-    g = facet_labels(g)
+    g = facet_labels(g, f)
+  
+  # ---- Effective reproduction number ----
+  
+  # Add a vertical line at 1 if plotting effective reproduction number
+  if ("R_effective" %in% f$metrics) {
+    reff_name = f$metric_names[["R_effective"]]
+    
+    # Plot R_eff = 1, and also the R_eff we've calibrated to
+    g = g + 
+      geom_hline(data = subset(plot_df, metric == reff_name), aes(yintercept = 1)) + 
+      geom_hline(data = subset(plot_df, metric == reff_name), aes(yintercept = baseline$input$r_eff), 
+                 linetype = "dashed", colour = "black")
+  }
   
   # ---- Figure aesthetics ----
   
@@ -264,8 +235,8 @@ plot_temporal = function(o, fig_name, ...) {
   }
   
   # Prettify y-axis
-  g = g + expand_limits(y = c(0, f$y_min)) +  # Restrain upper y limit from being really low
-    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, f$y_expand)))
+  g = g + expand_limits(y = c(0, f$expand_limit)) +  # Restrain upper y limit from being really low
+    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05)))
   
   # Prettify x-axis: day numbers
   if (f$plot_dates == FALSE)
@@ -283,17 +254,17 @@ plot_temporal = function(o, fig_name, ...) {
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(plot.title    = element_text(size = f$fontsize[1], hjust = 0.5),
-          strip.text    = element_text(size = f$fontsize[2]),
-          axis.text     = element_text(size = f$fontsize[4]),
-          axis.title    = element_blank(),
-          axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
+    theme(plot.title   = element_text(size = f$fontsize[1], hjust = 0.5),
+          strip.text   = element_text(size = f$fontsize[2]),
+          axis.text    = element_text(size = f$fontsize[4]),
+          axis.title   = element_blank(),
+          axis.line    = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
           panel.spacing = unit(1, "lines"),
           strip.background = element_blank(), 
-          legend.text   = element_text(size = f$fontsize[3]),
-          legend.title  = element_blank(),
-          legend.key    = element_blank(),
+          legend.text  = element_text(size = f$fontsize[3]),
+          legend.title = element_blank(),
+          legend.key   = element_blank(),
           legend.position = "bottom", 
           legend.key.height = unit(2, "lines"),
           legend.key.width  = unit(2, "lines"),
@@ -307,15 +278,9 @@ plot_temporal = function(o, fig_name, ...) {
   if (f$plot_type == "metric")
     g = g + theme(legend.position = "none")
   
-  # ---- Save plot and/or plotting dataframe ----
-  
   # Do not save figure if input is trivial  
   if (!is.null(fig_name))
     fig_save(o, g, fig_name)
-  
-  # Save plotting dataframe only if specifically requested
-  if (f$save_dataframe == TRUE)
-    save_dataframe(o, plot_df, fig_name)
   
   return(g)
 }
@@ -323,13 +288,26 @@ plot_temporal = function(o, fig_name, ...) {
 # ---------------------------------------------------------
 # Plot metrics over time for multiple metrics, groups, and/or scenarios
 # ---------------------------------------------------------
-plot_impact = function(o, fig_name, ...) {
+plot_impact = function(o, fig_name, plot_file = NULL, ...) {
   
   # Collate key word arguments and override geom
   args = list_modify(list(...), plot_geom = "bar")
   
-  # Collate and interpret inputs so we know what to plot
-  list[f, baseline] = fig_properties(o, args)
+  # ---- Figure properties ----
+  
+  # Scenarios to plot
+  f = fig_scenarios(o, list(...))
+  
+  # Handle alternative functionality case - file fed in directly
+  if (!is.null(plot_file)) baseline = plot_file
+  else {
+    
+    # Otherwise load baseline file
+    baseline = try_load(o$pth$scenarios, f$baseline_name)
+  }
+  
+  # Collate and interpret function inputs so we know what to plot
+  f = fig_properties(o, f, baseline$input, args)
   
   # If nothing to plot, return out
   if (f$n_metrics == 0)
@@ -362,7 +340,7 @@ plot_impact = function(o, fig_name, ...) {
   
   # ---- Summarise results ----
   
-  # Redefine summarise function if appropriate
+  # Get summarise function from user-defined string
   #
   # NOTE: As cumulative metrics have already been computed, we can just take
   #       the last (ie the largest) value to avoid (very large) overcounting
@@ -378,8 +356,7 @@ plot_impact = function(o, fig_name, ...) {
     summarise(value = summarise_fn(value), 
               lower = summarise_fn(lower), 
               upper = summarise_fn(upper)) %>%
-    ungroup() %>%
-    setDT()
+    as.data.table()
   
   # Check flag for plotting difference relative to baseline
   if (f$relative == TRUE) {
@@ -388,14 +365,12 @@ plot_impact = function(o, fig_name, ...) {
     baseline_name = f$scenario_names[[f$baseline_name]]
     
     # Difference betwen outcomes of each scenario and baseline
-    plot_df = plot_df %>%
-      group_by(metric, group) %>%
+    plot_df = group_by(plot_df, metric, group) %>%
       mutate(value = value - value[scenario == baseline_name], 
              lower = lower - lower[scenario == baseline_name], 
              upper = upper - upper[scenario == baseline_name]) %>%
-      ungroup() %>%
       filter(scenario != baseline_name) %>%
-      setDT()
+      as.data.table()
   }
   
   # Append scenario grouping details if plotting by scenario groups  
@@ -448,7 +423,7 @@ plot_impact = function(o, fig_name, ...) {
   plot_legend = ifelse(f$plot_type == "group" || f$bar_legend, TRUE, FALSE)
   
   # Plot impact bars
-  g = g + geom_bar(stat     = "identity", 
+  g = g + geom_bar(stat = "identity", 
                    position = bar_position, 
                    width    = f$bar_width,
                    colour   = "black",
@@ -460,9 +435,8 @@ plot_impact = function(o, fig_name, ...) {
   
   # Apply error bars if desired
   if (f$uncertainty == TRUE)
-    g = g + geom_errorbar(position = err_position,
-                          colour   = "darkgrey", 
-                          width    = 0.25)
+    g = g + geom_errorbar(position = err_position, size = 0.5, 
+                          colour = "darkgrey", width = 0.25)
   
   # Plot y = 0 reference line if we've gone below zero (ie negative impact)
   if (below_zero == TRUE)
@@ -472,7 +446,7 @@ plot_impact = function(o, fig_name, ...) {
   
   # Possible to define custom faceting function, in the form of evaluable string
   if (!is.null(f$facet_custom))
-    eval_str("g = g + ", f$facet_custom)
+    eval(parse(text = paste0("g = g + ", f$facet_custom)))
   
   # Most common use case is to use facet_wrap/grid based on what is being varied
   if (is.null(f$facet_custom)) {
@@ -503,7 +477,7 @@ plot_impact = function(o, fig_name, ...) {
   
   # Tag facets if desired
   if (f$facet_labels == TRUE)
-    g = facet_labels(g)
+    g = facet_labels(g, f)
   
   # ---- Figure aesthetics ----
   
@@ -519,29 +493,29 @@ plot_impact = function(o, fig_name, ...) {
   g = g + scale_fill_manual(values = f$colours, labels = use_labels)
   
   # Prettify y axis - expand above by default, but only below if we have negative values
-  if (below_zero) y_expand = rep(f$y_expand, 2) else y_expand = c(0, f$y_expand)
-  g = g + scale_y_continuous(labels = comma, expand = expansion(mult = y_expand))
+  if (below_zero) expand_by = c(0.05, 0.05) else expand_by = c(0, 0.05)
+  g = g + scale_y_continuous(labels = comma, expand = expansion(mult = expand_by))
   
   # Prettify x axis by wrapping long lines
   g = g + scale_x_discrete(labels = wrap_format(f$x_wrap))
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(plot.title    = element_text(size = f$fontsize[1], hjust = 0.5),
-          strip.text    = element_text(size = f$fontsize[2]),
-          axis.text.y   = element_text(size = f$fontsize[4]),
-          axis.text.x   = element_text(size = f$fontsize[4]),
-          axis.title    = element_blank(),
-          axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
+    theme(plot.title   = element_text(size = f$fontsize[1], hjust = 0.5),
+          strip.text   = element_text(size = f$fontsize[2]),
+          axis.text.y  = element_text(size = f$fontsize[4]),
+          axis.text.x  = element_text(size = f$fontsize[4]),
+          axis.title   = element_blank(),
+          axis.line    = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
           panel.spacing = unit(1, "lines"),
           strip.background = element_blank(), 
-          legend.text   = element_text(size = f$fontsize[3]),
-          legend.title  = element_blank(),
-          legend.key    = element_blank(),
+          legend.text  = element_text(size = f$fontsize[3]),
+          legend.title = element_blank(),
+          legend.key   = element_blank(),
           legend.position = "bottom", 
-          legend.key.height = unit(1, "lines"),
-          legend.key.width  = unit(1, "lines"),
+          legend.key.height = unit(2, "lines"),
+          legend.key.width  = unit(2, "lines"),
           legend.box.background = element_rect())
   
   # Rotate x axis labels if desired
@@ -575,15 +549,8 @@ plot_impact = function(o, fig_name, ...) {
                                        byrow = f$legend_by_row))
   }
   
-  # ---- Save plot and/or plotting dataframe ----
-  
-  # Do not save figure if input is trivial  
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  # Save plotting dataframe only if specifically requested
-  if (f$save_dataframe == TRUE)
-    save_dataframe(o, plot_df, fig_name)
+  # Save these figures to file
+  fig_save(o, g, fig_name)
   
   return(g)
 } 
@@ -591,23 +558,29 @@ plot_impact = function(o, fig_name, ...) {
 # ---------------------------------------------------------
 # Plot heat maps for multi-dimensional array scenarios
 # ---------------------------------------------------------
-plot_heatmap = function(o, fig_name, ...) {
-  
-  # TODO: Do we need to restrict this type of plot to grid only? Or can LHC also be used here?
+plot_heatmap = function(o, fig_name, array, plot_df = NULL, ...) {
   
   # Collate key word arguments and override geom
   args = list_modify(list(...), plot_geom = "tile", override_colours = NA)
   
-  # Collate and interpret inputs so we know what to plot
-  list[f, baseline] = fig_properties(o, args)
+  # ---- Figure properties ----
+  
+  # Scenarios to plot
+  f = fig_scenarios(o, args)
+  
+  # Load baseline (or alt baseline) file
+  baseline = try_load(o$pth$scenarios, f$baseline_name)
+  
+  # Collate and interpret function inputs so we know what to plot
+  f = fig_properties(o, f, baseline$input, args)
   
   # If nothing to plot, return out
   if (f$n_metrics == 0)
     return()
   
   # Multiple metrics are OK if plotting 2D arrays only
-  if (f$n_metrics > 1 && is.null(f$plot_df))
-    warning("Multiple metrics are only possible with 2D arrays")
+  if (f$n_metrics > 1)
+    stop("Multiple metrics are not yet possible")
   
   # Valid values for summarise argument
   summarise_valid = c("sum", "mean", "min", "max")
@@ -620,14 +593,10 @@ plot_heatmap = function(o, fig_name, ...) {
   # ---- Inspect array details ----
   
   # Determine number of dimensons from array_info
-  if (is.null(f$plot_df)) {
-    
-    # Throw an argument if one of 'array' or 'plot_df' is not provided
-    if (is.null(f$array))
-      stop("Argument 'array' must be provided to plot_heatmap (unless plot_df is supplied)")
+  if (is.null(plot_df)) {
     
     # Load details of this array scenario
-    array_info = try_load(o$pth$array_info, f$array)
+    array_info = try_load(o$pth$arrays, array)
     
     # Values of each dimension simulated
     array_df = array_info$values %>% rename(primary = scenario)
@@ -637,9 +606,6 @@ plot_heatmap = function(o, fig_name, ...) {
     n_dims = nrow(array_info$vars)
     
   } else {  # If plotting dataframe is already provided
-    
-    # Copy provided plotting dataframe
-    plot_df = f$plot_df
     
     # Number of dimensions defined by plot_df columns
     n_dims = length(intersect(names(plot_df), qc(x, y, w, v)))
@@ -652,7 +618,7 @@ plot_heatmap = function(o, fig_name, ...) {
   # ---- Construct plotting dataframe ----
   
   # Skip this entire process if plot_df is already provided
-  if (is.null(f$plot_df)) {
+  if (is.null(plot_df)) {
     
     # ---- Inspect details of any 'difference' array ----
     
@@ -674,8 +640,8 @@ plot_heatmap = function(o, fig_name, ...) {
         dif_analysis = o$analysis_name
       
       # Paths to dif array info and scenario files
-      dif_info_pth = pth_replace(o$pth$array_info, o$analysis_name, dif_analysis)
-      dif_scen_pth = pth_replace(o$pth$scenarios,  o$analysis_name, dif_analysis)
+      dif_info_pth = pth_replace(o$pth$arrays,    o$analysis_name, dif_analysis)
+      dif_scen_pth = pth_replace(o$pth$scenarios, o$analysis_name, dif_analysis)
       
       # Load dif array info
       dif_array_info = try_load(dif_info_pth, dif_name)
@@ -687,7 +653,7 @@ plot_heatmap = function(o, fig_name, ...) {
       
       # Join these with equivelent from 'primary' array
       dif_df = array_df %>%
-        mutate(sub = str_remove(primary, paste0("^", f$array, "\\."))) %>%
+        mutate(sub = str_remove(primary, paste0("^", array, "\\."))) %>%
         left_join(dif_array_values, by = c("sub", "variable_id"))
       
       # Check simualted values along each array dimension are identical
@@ -759,12 +725,14 @@ plot_heatmap = function(o, fig_name, ...) {
     # Close progress bar
     close(pb)
     
+    # Get summarise function from user-defined string
+    summarise_fn = get(f$summarise)
+    
     # Summarise results over time (summary function as defined by 'summarise')
     result_df = rbindlist(result_list) %>%
       group_by(array_type, scenario, group) %>%
-      summarise(value = get(f$summarise)(value)) %>%
-      ungroup() %>%
-      setDT()
+      summarise(value = summarise_fn(value)) %>%
+      as.data.table()
     
     # If plotting by some grouping, we need to select just one
     if (f$plot_type == "group") {
@@ -804,7 +772,7 @@ plot_heatmap = function(o, fig_name, ...) {
       left_join(result_df, by = c("array_type", "scenario")) %>%
       pivot_wider(id_cols    = c(all_of(dim_id)), 
                   names_from = array_type) %>%
-      setDT()
+      as.data.table()
     
     # Set dif as trivial if not plotting dif array
     if (!plot_dif)
@@ -824,70 +792,68 @@ plot_heatmap = function(o, fig_name, ...) {
     # For higher dimensions, use discrete strings rather than continuous values
     if (n_dims >= 3) plot_df$w = as.factor(paste0(dim_names[3], "=", plot_df$w))
     if (n_dims >= 4) plot_df$v = as.factor(paste0(dim_names[4], "=", plot_df$v))
-  }
-  
-  # ---- Interpolation ----
-  
-  # Check whether we want to do linear interpolation of data
-  if (!is.null(f$n_interpolate)) {
-    interp_list = list()
     
-    # For higher dimensions, use discrete strings rather than continuous values
-    if (n_dims < 3) plot_df$w = 1
-    if (n_dims < 4) plot_df$v = 1
+    # ---- Interpolation ----
     
-    # Loop through higher-dimensions - needs to be 2D at a time
-    for (this_v in unique(plot_df$v)) {
-      for (this_w in unique(plot_df$w)) {
-        
-        # Data for this facet only
-        facet_df = filter(plot_df, v == this_v, w == this_w)
-        
-        # Our interpolation function cannot handle NAs - there should not be any anyway
-        if (all(!is.na(facet_df$value))) {
+    # Check whether we want to do linear interpolation of data
+    if (!is.null(f$n_interpolate)) {
+      interp_list = list()
+      
+      # For higher dimensions, use discrete strings rather than continuous values
+      if (n_dims < 3) plot_df$w = 1
+      if (n_dims < 4) plot_df$v = 1
+      
+      # Loop through higher-dimensions - needs to be 2D at a time
+      for (this_v in unique(plot_df$v)) {
+        for (this_w in unique(plot_df$w)) {
           
-          # Linearly interpolate z values for n_interpolate points within axes limits 
-          interp_matrix = interp(x = facet_df$x, y = facet_df$y, z = facet_df$value, 
-                                 nx = f$n_interpolate, ny = f$n_interpolate)
+          # Data for this facet only
+          facet_df = filter(plot_df, v == this_v, w == this_w)
           
-          # Melt down to dataframe long format
-          interp_df = pivot_longer(as.data.table(interp_matrix$z), cols = everything())
-          
-          # Concatenate x and y with interpolated values and append facet w and v values
-          interp_list[[paste0(this_v, "_", this_w)]] = 
-            expand_grid(x = interp_matrix$x, 
-                        y = interp_matrix$y) %>%
-            mutate(w = this_w, v = this_v, 
-                   value = interp_df$value)
-          
-        } else {  # Throw a warning if unable to interpolate
-          warning("Unable to interpolate facet due to NA values")
+          # Our interpolation function cannot handle NAs - there should not be any anyway
+          if (all(!is.na(facet_df$value))) {
+            
+            # Linearly interpolate z values for n_interpolate points within axes limits 
+            interp_matrix = interp(x = facet_df$x, y = facet_df$y, z = facet_df$value, 
+                                   nx = f$n_interpolate, ny = f$n_interpolate)
+            
+            # Melt down to dataframe long format
+            interp_df = pivot_longer(as.data.table(interp_matrix$z), cols = everything())
+            
+            # Concatenate x and y with interpolated values and append facet w and v values
+            interp_list[[paste0(this_v, "_", this_w)]] = 
+              expand_grid(x = interp_matrix$x, 
+                          y = interp_matrix$y) %>%
+              mutate(w = this_w, v = this_v, 
+                     value = interp_df$value)
+            
+          } else {  # Throw a warning if unable to interpolate
+            warning("Unable to interpolate facet due to NA values")
+          }
         }
       }
+      
+      # Throw an error if no facets could be interpolated
+      if (length(interp_list) == 0)
+        stop("There are too many NAs in your results to perform interpolation")
+      
+      # Concatenate together and overwrite plotting dataframe
+      plot_df = rbindlist(interp_list) %>%
+        mutate(w = factor(w, levels = levels(plot_df$w)), 
+               v = factor(v, levels = levels(plot_df$v)))
     }
     
-    # Throw an error if no facets could be interpolated
-    if (length(interp_list) == 0)
-      stop("There are too many NAs in your results to perform interpolation")
-    
-    # Concatenate together and overwrite plotting dataframe
-    plot_df = rbindlist(interp_list) %>%
-      mutate(w = factor(w, levels = levels(plot_df$w)), 
-             v = factor(v, levels = levels(plot_df$v)))
-  }
-  
-  # ---- Respect any colour limits ----
-  
-  # Check if user has colour limit restrictions
-  if (!is.null(f$colour_limits)) {
-    
-    # Bound values above min colour_limit
-    if (!is.na(f$colour_limits[1]))
-      plot_df[, value := pmax(value, f$colour_limits[1])]
-    
-    # Bound values below max colour_limit
-    if (!is.na(f$colour_limits[2]))
-      plot_df[, value := pmin(value, f$colour_limits[2])]
+    # Check if user has colour limit restrictions
+    if (!is.null(f$colour_limits)) {
+      
+      # Bound values above min colour_limit
+      if (!is.na(f$colour_limits[1]))
+        plot_df[, value := pmax(value, f$colour_limits[1])]
+      
+      # Bound values below max colour_limit
+      if (!is.na(f$colour_limits[2]))
+        plot_df[, value := pmin(value, f$colour_limits[2])]
+    }
   }
   
   # ---- Produce plot ----
@@ -1025,12 +991,11 @@ plot_heatmap = function(o, fig_name, ...) {
   plot_file = tolower(paste(fig_name, collapse = "_")) %>%
     str_replace_all(" ", "_")
   
-  # Save this to file as standard
-  saveRDS(plot_info, paste0(o$pth$results, plot_file, ".rds"))
+  # Save this to file
+  saveRDS(plot_info, paste0(o$pth$figures, plot_file, ".rds"))
   
   # Finally, save this figure to file
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
+  fig_save(o, g, fig_name)
   
   return(plot_info)
 } 
@@ -1038,7 +1003,7 @@ plot_heatmap = function(o, fig_name, ...) {
 # ---------------------------------------------------------
 # Plot number of infections for multiple scenarios
 # ---------------------------------------------------------
-plot_num_infections = function(o, fig_name, ...) {
+plot_num_infections = function(o, fig_name, plot_file = NULL, ...) {
   
   # Collate key word arguments and override several values
   args = list_modify(list(...), 
@@ -1046,8 +1011,21 @@ plot_num_infections = function(o, fig_name, ...) {
                      plot_metrics = "n_infections", 
                      plot_by      = "infections")
   
-  # Collate and interpret inputs so we know what to plot
-  list[f, baseline] = fig_properties(o, args)
+  # ---- Figure properties ----
+  
+  # Scenarios to plot
+  f = fig_scenarios(o, list(...))
+  
+  # Handle alternative functionality case - file fed in directly
+  if (!is.null(plot_file)) baseline = plot_file
+  else {
+    
+    # Otherwise load baseline file
+    baseline = try_load(o$pth$scenarios, f$baseline_name)
+  }
+  
+  # Collate and interpret function inputs so we know what to plot
+  f = fig_properties(o, f, baseline$input, args)
   
   # If nothing to plot, return out
   if (f$n_metrics == 0)
@@ -1080,7 +1058,8 @@ plot_num_infections = function(o, fig_name, ...) {
     mutate(group    = as.factor(paste0(group, " infections")),
            metric   = recode(metric,   !!!f$metric_names), 
            scenario = recode(scenario, !!!f$scenario_names), 
-           scenario = factor(scenario, levels = f$scenario_names))
+           scenario = factor(scenario, levels = f$scenario_names)) %>%
+    as.data.table()
   
   # ---- Create basic figure ----
   
@@ -1102,23 +1081,18 @@ plot_num_infections = function(o, fig_name, ...) {
   plot_legend = ifelse(f$facet_by == "group", TRUE, FALSE)
   
   # Plot histogram, we can use geom_bar here as we've already binned
-  g = g + geom_bar(stat   = "identity", 
-                   colour = "black", 
-                   size   = 0.25, 
-                   show.legend = plot_legend)
+  g = g + geom_bar(stat = "identity", colour = "black", show.legend = plot_legend)
   
   # Apply error bars if desired
   if (f$uncertainty == TRUE)
-    g = g + geom_errorbar(colour = "darkgrey", 
-                          width  = 0.25, 
-                          size   = 0.25)
+    g = g + geom_errorbar(colour = "darkgrey", width = 0.25, size = 0.5)
   
   # Apply faceting function
   g = g + facet_wrap(as.formula(paste("~", f$facet_by)), labeller = f$label_wrap)
   
   # Tag facets if desired
   if (f$facet_labels == TRUE)
-    g = facet_labels(g)
+    g = facet_labels(g, f)
   
   # ---- Figure aesthetics ----
   
@@ -1126,22 +1100,22 @@ plot_num_infections = function(o, fig_name, ...) {
   g = g + scale_fill_manual(values = f$colours)
   
   # Prettify y axis - expand above by default
-  g = g + scale_y_continuous(labels = percent, expand = expansion(mult = c(0, f$y_expand)))
+  g = g + scale_y_continuous(labels = percent, expand = expansion(mult = c(0, 0.05)))
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(plot.title    = element_text(size = f$fontsize[1], hjust = 0.5),
-          strip.text    = element_text(size = f$fontsize[2]),
-          axis.text.y   = element_text(size = f$fontsize[4]),
-          axis.text.x   = element_text(size = f$fontsize[4], hjust = 1, angle = 50),
-          axis.title    = element_blank(),
-          axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
+    theme(plot.title   = element_text(size = f$fontsize[1], hjust = 0.5),
+          strip.text   = element_text(size = f$fontsize[2]),
+          axis.text.y  = element_text(size = f$fontsize[4]),
+          axis.text.x  = element_text(size = f$fontsize[4], hjust = 1, angle = 50),
+          axis.title   = element_blank(),
+          axis.line    = element_blank(),
+          panel.border = element_rect(size = 1, colour = "black", fill = NA),
           panel.spacing = unit(1, "lines"),
           strip.background = element_blank(), 
-          legend.text   = element_text(size = f$fontsize[3]),
-          legend.title  = element_blank(),
-          legend.key    = element_blank(),
+          legend.text  = element_text(size = f$fontsize[3]),
+          legend.title = element_blank(),
+          legend.key   = element_blank(),
           legend.position = "bottom",
           legend.key.height = unit(2, "lines"),
           legend.key.width  = unit(2, "lines"),
@@ -1157,15 +1131,8 @@ plot_num_infections = function(o, fig_name, ...) {
                                        byrow = f$legend_by_row))
   }
   
-  # ---- Save plot and/or plotting dataframe ----
-  
-  # Do not save figure if input is trivial  
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  # Save plotting dataframe only if specifically requested
-  if (f$save_dataframe == TRUE)
-    save_dataframe(o, plot_df, fig_name)
+  # Save these figures to file
+  fig_save(o, g, fig_name)
   
   return(g)
 }
@@ -1191,7 +1158,7 @@ plot_disease_state = function(o, fig_name, p, states) {
            state_type = factor(state_type, levels = c("disease", "care")), 
            state      = factor(state,      levels = p$model_states$all)) %>%
     arrange(state_type, state, date) %>%
-    setDT()
+    as.data.table()
   
   # Plot as stacked area plot
   g1 = ggplot(plot_df, aes(x = date, y = value)) +
@@ -1205,23 +1172,21 @@ plot_disease_state = function(o, fig_name, p, states) {
     facet_wrap(~state_type, scales = "free_y") + 
     theme_classic()
   
-  # Save figures (as long as fig_name is not trivial)
-  if (!is.null(fig_name)) {
-    
-    # Save ggplot figures to file
-    fig_save(o, g1, fig_name, "Stacked area")
-    fig_save(o, g2, fig_name, "Line")
-  }
+  # Save ggplot figure to file
+  fig_save(o, g1, fig_name, "Stacked area")
+  fig_save(o, g2, fig_name, "Line")
 }
 
 # ---------------------------------------------------------
 # Plot performance of Gaussian process emulators
 # ---------------------------------------------------------
-plot_emulator = function(o, fig_name, round_idx) {
+plot_emulator = function(o, fig_name) {
+  
+  # Data types we're working with
+  data_types = c("train", "test")
   
   # Corresponding colour scheme
-  train_colours = "brewer::set1"
-  test_colour   = "grey20"
+  colours = c("skyblue1", "blue2")
   
   # Flag to remove extreme values
   remove_outliers = FALSE
@@ -1230,46 +1195,38 @@ plot_emulator = function(o, fig_name, round_idx) {
   
   # Load emulator - throw an error if it doesn't exist explaining step 1 needs to run first
   err_msg = "Attempting to plot emulator performance but cannot find model emulator file"
-  emulator = try_load(o$pth$fitting, paste0(round_idx, "_emulator"), msg = err_msg)
+  emulator = try_load(o$pth$fitting, "model_emulator", msg = err_msg) 
   
   # Extract plotting dataframe
-  emulator_df = emulator$performance %>%
-    mutate(group = as.factor(group))
+  plot_df = emulator$performance %>%
+    mutate(group = factor(group, levels = data_types))
   
   # Remove outliers if desired (> 3 std devs from mean)
   if (remove_outliers == TRUE)
-    emulator_df = filter(emulator_df, 
-                         abs(actual  - mean(actual))  < 3 * sd(actual), 
-                         abs(predict - mean(predict)) < 3 * sd(predict))
+    plot_df = filter(plot_df, 
+                     abs(actual  - mean(actual))  < 3 * sd(actual), 
+                     abs(predict - mean(predict)) < 3 * sd(predict))
   
   # Construct dummy dataframe so we get 
-  dummy_df = emulator_df[, .(actual = predict, predict = actual, group)]
-  
-  # Split test and train to allow different alpha values in plot
-  train_df = emulator_df[group != "test", ]
-  test_df  = emulator_df[group == "test", ]
+  dummy_df = select(plot_df, actual = predict, predict = actual, group)
   
   # ---- Produce plot ----
   
   # Plot truth vs predicted (also plot invisible in reverse for square axes)
-  g = ggplot(dummy_df, aes(x = actual, y = predict, colour = group)) + 
-    geom_blank() +
-    geom_point(data = train_df, size = 5, alpha = 0.4, shape = 16) + 
-    geom_point(data = test_df,  size = 4) + 
+  g = ggplot(plot_df, aes(x = actual, y = predict, colour = group)) + 
+    geom_blank(data = dummy_df) +
+    geom_point(size = 5, alpha = 0.8) + 
     geom_abline()
   
   # Prettify axes
-  g = g + labs(x = "Actual", y = "Predicted", 
-               title = paste("Emulator performance:", round_idx)) + 
+  g = g + labs(x = "Actual", y = "Predicted", title = "Emulator performance") + 
     scale_x_continuous(expand = expansion(mult = c(0.05, 0.05))) + 
     scale_y_continuous(expand = expansion(mult = c(0.05, 0.05)))
   
-  # Determine how many training colours to generate
-  n_cols = length(unique(train_df$group))
-  cols   = colour_scheme(train_colours, n = n_cols)
-  
-  # Prettify legend and set colour scheme
-  g = g + scale_colour_manual(name = "Data type", values = c(test_colour, cols))
+  # Prettify legend - depends on type of plot
+  g = g + scale_colour_manual(name   = "Data type", 
+                              values = colours, 
+                              labels = first_cap(data_types))
   
   # Prettify theme
   g = g + theme_classic() + 
@@ -1282,127 +1239,147 @@ plot_emulator = function(o, fig_name, round_idx) {
           axis.line    = element_blank(), 
           panel.border = element_rect(colour = "black", fill = NA, size = 1))
   
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name, round_idx)
-  
-  return(g)
+  # Save figure to file
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
-# Plot optimisation performance and parameter-objective relationship
+# Plot optimisation performance and parameter-R_eff relationship
 # ---------------------------------------------------------
-plot_optimisation = function(o, fig_name, round_idx) {
+plot_optimisation = function(o, fig_name) {
   
   # Optimisation colour
-  colour_best = "grey40"
+  colour_optim = "dodgerblue"
   
-  # Colour map for rounds and seeds
-  colour_seed  = "viridis::viridis"
-  colour_round = "brewer::set1"
+  # Colour map for seeds
+  colour_map = "viridis::viridis"
+  
+  # Number of samples for emulator plotting
+  n_eval = 100
   
   # Expad axes limits
   ax_expand = 0.01
   
-  # ---- Load samples and optimisation result ----
+  # ---- Load samples, emulator, and optimisation result ----
   
-  # Load all thus-far simulated samples
-  samples_df = try_load(o$pth$fitting, "rx_samples")
+  # Load emulator - throw an error if it doesn't exist explaining step 1 needs to run first
+  err_msg = "Attempting to plot emulator performance but cannot find model emulator file"
+  emulator = try_load(o$pth$fitting, "model_emulator", msg = err_msg) 
   
-  # Load optimisation result from this round
-  fit_result = try_load(o$pth$fitting, paste0(round_idx, "_result"))
+  # Also load simulated samples and optimisation result
+  samples_df = try_load(o$pth$fit_samples, "all_samples")
+  fit_result = try_load(o$pth$fitting,     "fit_result")
+  
+  # Shorthand for fitted parameter names and bounds
+  fit_params = fit_result$params
+  fit_bounds = fit_result$bounds
+  
+  # ---- Evaluate emulator at a load of points ----
+  
+  # Bounds of params-dimensional unit cube
+  unit_cube = matrix(rep(c(0, 1), each = length(fit_params)), ncol = 2)
+  
+  # Sample a load of points and evaluate using emulator
+  eval_input  = lhs(n_eval, unit_cube) 
+  eval_output = predict(emulator, x = eval_input)
+  
+  # Function for extacting prediction bounds for emulator result
+  eval_bounds_fn = function(x, q) qnorm(q, x$mean, sqrt(x$sd2 + x$nugs))
+  
+  # Extract emulator evaluated best estimate and bounds
+  eval_df = as_named_dt(eval_input, fit_params) %>%
+    mutate(mean  = eval_output$mean, 
+           lower = eval_bounds_fn(eval_output, 0.05), 
+           upper = eval_bounds_fn(eval_output, 0.95)) 
+  
+  # Retransform evaluated points back to real scale
+  for (param in fit_params) {
+    param_idx = which(fit_params %in% param)
+    
+    # Use parameter bounds rather than bounds of sampled points
+    eval_df[[param]] = normalise_0to1(
+      x = eval_df[[param]], 
+      x_min = fit_bounds[[param_idx, 1]], 
+      x_max = fit_bounds[[param_idx, 2]], 
+      direction = "backward")
+  }
   
   # ---- Construct plotting dataframes ----
   
   # Melt down simulated samples ready for plotting
   simulated_df = samples_df %>%
     select(-param_id) %>%
-    pivot_longer(cols = all_of(fit_result$params), 
+    pivot_longer(cols = all_of(fit_params), 
                  names_to = "param") %>%
-    mutate(round = as.factor(round), 
-           seed  = as.factor(seed)) %>%
-    setDT()
+    mutate(seed = as.factor(seed)) %>%
+    as.data.table()
   
-  # ID of parameter set with best mean objective value
-  best_simulated_id = samples_df %>% 
-    mutate(paramset_id = get_paramset_id(param_id)) %>%
-    group_by(paramset_id) %>%
-    summarise(obj_value = mean(obj_value)) %>%
-    slice_min(obj_value, n = 1) %>%
-    pull(paramset_id)
-  
-  # Extract best simulated parameter set values
-  best_simulated = samples_df %>%
-    mutate(paramset_id = get_paramset_id(param_id)) %>%
-    filter(paramset_id == best_simulated_id) %>%
-    select(all_of(fit_result$params)) %>%
-    unique() %>%
-    pivot_longer(cols = everything(), 
+  # Melt down emulator evaluations ready for plotting
+  emulator_df = eval_df %>%
+    pivot_longer(cols = all_of(fit_params), 
                  names_to = "param") %>%
-    setDT()
+    as.data.table()
   
   # Construct best optimisation results dataframe
-  best_emulated = fit_result$result %>%
+  best_df = fit_result$result %>%
     as.data.table() %>% 
     pivot_longer(cols = everything(), 
                  names_to  = "param") %>%
-    setDT()
+    as.data.table()
   
-  # Compile with bounds of optimisation process
-  best_optimised = fit_result$optim$x %>%
-    as_named_dt(fit_result$params) %>%
+  # Compile with bounds of oiptimisation process
+  optim_df = fit_result$output$x %>%
+    as_named_dt(fit_params) %>%
     pivot_longer(cols = everything(), 
                  names_to = "param") %>%
     group_by(param) %>%
     summarise(lower = min(value), 
               upper = max(value)) %>%
-    ungroup() %>%
-    left_join(best_emulated, by = "param") %>%
-    setDT()
+    left_join(best_df, by = "param") %>%
+    as.data.table()
   
   # ---- Produce plot ---
   
-  # Colour by seed on first iteration, by round after for subsequent iterations
-  colour_by = ifelse(round_idx == "r0", "seed", "round")
-  
   # Plot simulated points (distinguished by seed)
   g = ggplot(simulated_df, aes(x = value)) +
-    geom_point(aes_string(y = "obj_value", colour = colour_by), 
+    geom_point(aes(y = r_eff, colour = seed), 
                size = 2, stroke = 0, alpha = 0.6) +
-    facet_wrap(~param, scales = "free_x")
+    facet_wrap(~param)
   
-  # Plot best parameters found via simulation
-  g = g + geom_vline(data = best_simulated, aes(xintercept = value), 
-                     colour = colour_best, size = 1, linetype = "dashed")
+  # Plot emulator best fit and bounds
+  g = g + geom_ribbon(data = emulator_df, 
+                      mapping = aes(ymin = lower, ymax = upper), alpha = 0.4) +
+    geom_line(data = emulator_df, mapping = aes(y = mean), size = 2) 
   
-  # Plot best parameters found via optimisation
-  g = g + geom_vline(data = best_optimised, aes(xintercept = value), 
-                     colour = colour_best, size = 1)
+  # Plot target R_eff
+  g = g + geom_hline(yintercept = fit_result$input$r_eff, 
+                     colour = colour_optim, linetype = "dashed", size = 2)
+  
+  # Plot optimal params to achieve this R_eff
+  g = g + geom_vline(data = optim_df, aes(xintercept = value), 
+                     colour = colour_optim, size = 2)
   
   # Finally, plot extremes found from the different optimisation runs
-  g = g + geom_rect(data = best_optimised, 
+  g = g + geom_rect(data = optim_df, 
                     mapping = aes(xmin = lower, ymin = -Inf, 
                                   xmax = upper, ymax = Inf), 
-                    fill = colour_best, color = NA, alpha = 0.2)
+                    fill = colour_optim, color = NA, alpha = 0.2)
   
   # ---- Prettify plot ----
   
   # Prettify axes
   g = g + labs(x = "Parameter value", 
-               y = "Objective function", 
-               title = paste("Optimisation performance:", round_idx)) + 
+               y = "Effective reproduction number", 
+               title = "Optimisation performance") + 
     scale_x_continuous(expand = expansion(mult = c(ax_expand, ax_expand))) + 
     scale_y_continuous(expand = expansion(mult = c(ax_expand, ax_expand)))
   
-  # Colour palette depends on whether plotting seeds or rounds
-  colour_map = ifelse(round_idx == "r0", colour_seed, colour_round)
-  
-  # Create colour scheme for different seeds or rounds
-  n_colours = length(levels(simulated_df[[colour_by]]))
-  colours   = colour_scheme(colour_map, n = n_colours)
+  # Create colour scheme for different seeds
+  n_seeds = length(levels(simulated_df$seed))
+  seed_colours = colour_scheme(colour_map, n = n_seeds)
   
   # Set this colour scheme
-  g = g + scale_colour_manual(values = colours)
+  g = g + scale_colour_manual(name = "Seed number", values = seed_colours)
   
   # Prettify theme
   g = g + theme_classic() + 
@@ -1414,739 +1391,154 @@ plot_optimisation = function(o, fig_name, round_idx) {
           legend.text  = element_text(size = 16), 
           legend.title = element_text(size = 18), 
           axis.line    = element_blank(), 
-          panel.border = element_rect(colour = "black", fill = NA, size = 1), 
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank())
+          panel.border = element_rect(colour = "black", fill = NA, size = 1))
   
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name, round_idx)
-  
-  return(g)
-}
-
-# ---------------------------------------------------------
-# Plot the n best-fitting simulated parameter set samples
-# ---------------------------------------------------------
-plot_best_samples = function(o, fig_name, round_idx) {
-  
-  # Percentage of best parameter sets to plot
-  p_sets = c(1, 10, 50, 100)
-  
-  # Whether to only plot density for supported limits
-  density_trim = FALSE
-  
-  # ---- Load samples, model output, and data ----
-  
-  # Load fitting details
-  fit = try_load(o$pth$fitting, paste0(round_idx, "_result"))
-  
-  # Return out if fitting to Re
-  if (fit$.use_Re == TRUE)
-    return()
-  
-  # Load all samples, their obj values, and associated model output
-  samples_df = try_load(o$pth$fitting, paste0(round_idx, "_samples"))
-  output_df  = try_load(o$pth$fitting, paste0(round_idx, "_output"))
-  
-  # Summarise samples into their parameter sets (that is, summarise over seeds)
-  sets_df = samples_df %>%
-    mutate(paramset_id = get_paramset_id(param_id)) %>%
-    group_by(paramset_id) %>%
-    summarise(obj_value = mean(obj_value)) %>%
-    ungroup() %>%
-    setDT()
-  
-  # Scale model output to per 100k people
-  scaler   = 1e5 / fit$input$population_size
-  scale_df = fit$input$metrics$df %>% 
-    select(metric, scale) %>%
-    mutate(scaler = ifelse(scale, scaler, 1))
-  
-  # Apply scaler, remove burn in phase, and cumulatively sum
-  model_df = output_df %>%
-    left_join(scale_df, by = "metric") %>%
-    mutate(value = value * scaler) %>%
-    select(-scale, -scaler) %>%
-    filter(date > fit$input$calibration_options$data_burn_in) %>%
-    group_by(param_id, round, seed, metric) %>%
-    mutate(value = cumsum(value)) %>%
-    ungroup() %>%
-    setDT()
-  
-  # Also cumulatively sum data
-  data_df = fit$data %>%
-    filter(!is.na(value), 
-           metric %in% unique(model_df$metric)) %>%
-    group_by(metric) %>%
-    mutate(value = cumsum(value)) %>%
-    ungroup() %>%
-    # select(-date) %>%
-    # rename(date = day) %>%
-    setDT()
-  
-  # Extract parameter bounds
-  param_df = data.table(param = fit$params, fit$bounds)
-  
-  # ---- Create plot for each set of samples ----
-  
-  # Objective value limits (used for colouring)
-  obj_limits = c(0, max(sets_df$obj_value))
-  
-  # Initate plotting list
-  plot_list = list()
-  
-  # Iterate through number of sample sets to plot
-  for (i in seq_along(p_sets)) {
-    
-    # Number of parameter sets to plot on this iteration
-    n_sets = max(2, round(nrow(sets_df) * p_sets[i] / 100))
-    
-    # IDs of parameter sets to plot on this iteration
-    plot_id = sets_df %>%
-      slice_min(obj_value, n = n_sets) %>%
-      pull(paramset_id)
-    
-    # Plot dataframe 1: Model output plotted against data
-    plot1_df = model_df %>%
-      mutate(paramset_id = get_paramset_id(param_id)) %>%
-      filter(paramset_id %in% plot_id) %>%
-      left_join(samples_df, by = c("param_id", "round", "seed")) %>%
-      select(param_id, obj_value, metric, date, value)
-    
-    # Plot dataframe 2: Parameter values
-    plot2_df = samples_df %>%
-      mutate(paramset_id = get_paramset_id(param_id)) %>%
-      filter(paramset_id %in% plot_id) %>%
-      select(obj_value, all_of(fit$params)) %>%
-      unique() %>%
-      pivot_longer(cols = -obj_value, 
-                   names_to = "param") %>%
-      setDT()
-    
-    # Plot 1: Model output plotted against data, colour signifies quality of fit
-    g1 = ggplot(plot1_df, aes(x = date, y = value)) + 
-      geom_line(aes(group = param_id, colour = obj_value),
-                show.legend = FALSE, alpha = 0.6) +
-      geom_point(data = data_df, colour = "darkred") + 
-      facet_wrap(~metric, nrow = 1, scales = "free_y") + 
-      scale_colour_gradient(low    = "blue", 
-                            high   = "grey50", 
-                            limits = obj_limits) + 
-      scale_x_continuous(expand = expansion(mult = c(0, 0))) + 
-      scale_y_continuous(expand = expansion(mult = c(0, 0.05)), 
-                         name   = paste0("Top ", p_sets[i], "% of samples"))
-    
-    # Plot 2: Density plot of model parameter values
-    g2 = ggplot(plot2_df) + 
-      geom_segment(data    = param_df, 
-                   mapping = aes(x = lower, 
-                                 y = 0,     
-                                 xend = upper, 
-                                 yend = 0), 
-                   alpha = 0) +
-      geom_density(mapping = aes(x = value, 
-                                 y = ..scaled.., 
-                                 weight = obj_value, 
-                                 fill   = param, 
-                                 colour = param), 
-                   alpha = 0.5, trim = density_trim, show.legend = FALSE) + 
-      facet_wrap(~param, nrow = 1, scales = "free_x") + 
-      scale_x_continuous(expand = expansion(mult = c(0, 0))) + 
-      scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
-    
-    # Prettify plot 1
-    g1 = g1 + theme_classic() + 
-      theme(strip.text   = element_text(size = 12), 
-            axis.title.x = element_blank(), 
-            axis.title.y = element_text(size = 12), 
-            axis.text    = element_text(size = 8), 
-            axis.line    = element_blank(), 
-            panel.border = element_rect(size = 1, colour = "black", fill = NA), 
-            strip.background = element_blank())
-    
-    # Prettify plot 2
-    g2 = g2 + theme_classic() + 
-      theme(strip.text   = element_text(size = 12), 
-            axis.title   = element_blank(), 
-            axis.text.x  = element_text(size = 8), 
-            axis.text.y  = element_blank(), 
-            axis.line    = element_blank(), 
-            panel.border = element_rect(size = 1, colour = "black", fill = NA), 
-            strip.background = element_blank())
-    
-    # Store these subplots in a list
-    plot_list[[i * 2 - 1]] = g1
-    plot_list[[i * 2]]     = g2
-  }
-  
-  # Arrange the list in a p_sets x 2 grid
-  g = ggarrange(plotlist = plot_list, nrow = length(p_sets), ncol = 2)
-  
-  # Set a title to indicate adaptive sampling round
-  g = g + labs(title = paste("Best fitting samples:", round_idx))
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name, round_idx)
-  
-  return(g)
-}
-
-# ---------------------------------------------------------
-# Plot calibration weight assumptions for metrics, time, and peaks
-# ---------------------------------------------------------
-plot_calibration_weights = function(o, fig_name) {
-  
-  # Load fitting details (from first round is sufficient)
-  fit = try_load(o$pth$fitting, "r0_result")
-  
-  # Return out if fitting to Re
-  if (fit$.use_Re == TRUE)
-    return()
-  
-  # Extract all possible metric, time, and peak weights
-  weight_df = format_weights(fit$data, fit$input, all = TRUE)
-  
-  # Melt down ready for plotting and set 'class' of weighting
-  plot_df = weight_df %>%
-    select(-target) %>%
-    pivot_longer(cols = starts_with("w_"),
-                 names_to = "type") %>%
-    mutate(class = str_extract(type, "[^_]*_[^_]*"), .before = "type",
-           type  = str_remove(type, "[^_]*_[^_]*_")) %>% 
-    mutate(class = fct_inorder(class),
-           type  = fct_inorder(type)) %>%
-    setDT()
-  
-  # Plot metric x class grid of weight options (for this setting)
-  g = ggplot(plot_df, aes(x = date, y = value, colour = type)) +
-    geom_line(size = 2) +
-    facet_grid(class~metric, scales = "free_y")
-  
-  # Create a colour scheme
-  n_colours = length(levels(plot_df$type))
-  colours   = colour_scheme("brewer::set1", n = n_colours)
-  
-  # Set this colour scheme
-  g = g + scale_colour_manual(values = colours)
-  
-  # Set figure and axes titles
-  g = g + ggtitle("Calibration weight assumptions") +
-    ylab("Weighting value") + 
-    scale_x_continuous(expand = c(0, 0)) + 
-    scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
-  
-  # Prettify theme
-  g = g + theme_classic() + 
-    theme(plot.title   = element_text(size = 30, hjust = 0.5),
-          strip.text   = element_text(size = 20),
-          axis.text    = element_text(size = 12),
-          axis.title.x = element_blank(),
-          axis.title.y = element_text(size = 24),
-          axis.line    = element_blank(),
-          panel.border = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank(), 
-          legend.text  = element_text(size = 16),
-          legend.title = element_blank(),
-          legend.key   = element_blank(),
-          legend.position = "bottom", 
-          legend.key.height = unit(2, "lines"),
-          legend.key.width  = unit(2, "lines"),
-          legend.box.background = element_rect())
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
-}
-
-# ---------------------------------------------------------
-# LHC scenario diagnostic plots
-# ---------------------------------------------------------
-plot_lhc_diagnostics = function(o, fig_name, parent) {
-  
-  # ---- Load performance details ----
-  
-  # Load model parameters, simply to check endpoints
-  input = parse_yaml(o, "baseline")$parsed
-  
-  # IDs of all valid endpoints
-  endpoints_id = list2dt(input$scenario_lhc_endpoints)$id
-  
-  # Initiate lists for data and perfomance datatables
-  data_list = performance_list = list()
-  
-  # Loop though endpoints
-  for (endpoint in endpoints_id) {
-    
-    # Load predictor for this endpoint for this parent
-    predictor = try_load(o$pth$endpoints, paste0(parent, ".", endpoint))
-    
-    # Store parameter sets used to train the predictor
-    data_list[[endpoint]] = predictor$data %>%
-      mutate(endpoint = !!endpoint)
-    
-    # Store perfomance details (truth vs predicted)
-    performance_list[[endpoint]] = predictor$performance %>%
-      mutate(endpoint = !!endpoint)
-  }
-  
-  # --- Figure 1: Input vs output relationship ----
-  
-  # Melt down input variables
-  data_df = rbindlist(data_list) %>%
-    select(-scenario) %>%
-    rename(outcome = value) %>%
-    pivot_longer(cols = c(-endpoint, -outcome), 
-                 names_to = "variable") %>%
-    mutate(endpoint = fct_inorder(endpoint)) %>%
-    select(variable, value, endpoint, outcome) %>%
-    setDT()
-  
-  # Plot relationship between each input and actual output
-  g1 = ggplot(data_df) + 
-    aes(x = value, y = outcome, colour = variable) + 
-    geom_point() + 
-    facet_grid(endpoint~variable, scales = "free")
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g1, fig_name, "Relationships", parent)
-  
-  # --- Figure 2: Predictor performance ----
-  
-  # Performance data is already in correct format
-  performance_df = rbindlist(performance_list)
-  
-  # Flip truth and predicted in order to create nice square plotting area
-  dummy_df = performance_df[, .(actual = predict, predict = actual, group)]
-  
-  # Plot truth vs predicted (also plot invisible in reverse for square axes)
-  g2 = ggplot(performance_df) + 
-    aes(x = actual, y = predict, colour = group) + 
-    geom_blank(data = dummy_df) +
-    geom_point() + 
-    geom_abline() +
-    facet_wrap(~endpoint)
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g2, fig_name, "Performance", parent)
-}
-
-# ---------------------------------------------------------
-# LHC scenario prediction plots
-# ---------------------------------------------------------
-plot_lhc_endpoints = function(o, fig_name, 
-                              endpoint, 
-                              parent, 
-                              vars, 
-                              dif_vars = NULL, 
-                              uncertainty = TRUE) {
-  
-  # Define a colour palette
-  colour_pal = "pals::kovesi.rainbow"
-  
-  # Number of points to evaluate across the 'free' dimension
-  n_pts = 100
-  
-  # ---- Endpoint sanity check ----
-  
-  # Load model parameters, simply to check endpoints
-  input = parse_yaml(o, "baseline")$parsed
-  
-  # All valid endpoints
-  all_endpoints = list2dt(input$scenario_lhc_endpoints)
-  
-  # Throw an error if requested endpoint is not valid
-  if (!endpoint %in% all_endpoints$id)
-    stop("LHC endpoint '", endpoint, "' not recognised ")
-  
-  # ---- Variable sanity check ----
-  
-  # Load array info for this parent
-  array_info = try_load(o$pth$array_info, parent)
-  
-  # Throw an error if not an LHC array scenario
-  if (array_info$type != "lhc")
-    stop("Array parent does not appear to be an LHC scenario")
-  
-  # Extract model parameters that have been varied
-  vars_id = array_info$vars$variable_id
-  
-  # Ensure user has defined values for all variables
-  var_missing = setdiff(vars_id, names(vars))
-  if (length(var_missing) > 0)
-    stop("Missing variables: ", paste(var_missing, collapse = ", "))
-  
-  # Ensure user has not provided any unknown variables
-  var_unknown = setdiff(names(vars), vars_id)
-  if (length(var_unknown) > 0)
-    stop("Unknown variables: ", paste(var_unknown, collapse = ", "))
-  
-  # Ensure that one and only one parameter is 'free'
-  vars_free = names(vars[vars == "free"])
-  if (length(vars_free) != 1)
-    stop("Exactly one variable should be defined as 'free'")
-  
-  # ---- Difference varaibles ----
-  
-  # If no difference input given, construct trivial list
-  if (is.null(dif_vars))
-    dif_vars = list()
-  
-  # Throw an error if difference variables not defined as a list
-  if (!is.list(dif_vars))
-    stop("Difference variables must be defined within a list")
-  
-  # We'll join by all undefined variables 
-  vars_join = setdiff(vars_id, names(dif_vars))
-  
-  # Create flag for doing difference comparison
-  do_diff = ifelse(length(dif_vars) > 0, TRUE, FALSE)
-  
-  # Any difference scenarios should take same value across undefined variables
-  if (do_diff == TRUE)
-    dif_vars = list_modify(vars, !!!dif_vars)
-  
-  # ---- Parse variable values ----
-  
-  # Define function as we may need this parsing multiple times
-  parse_vars = function(vars) {
-    
-    # Loop through variables defined in list
-    for (var in names(vars)) {
-      
-      # Extract first value
-      val = vars[[var]][1]
-      bnd = array_info$bounds[var, ]
-      
-      # Exactly one variable should be vaired between bounds
-      if (val == "free") 
-        vars[[var]] = seq(bnd[1], bnd[2], length.out = n_pts)
-      
-      # Other variables can take discrete steps
-      if (grepl("^seq::", val))
-        vars[[var]] = seq(bnd[1], bnd[2], length.out = 
-                            as.numeric(str_extract(val, "[0-9]+")))
-      
-      # Otherwise variables can be fixed at either extreme
-      if (val == "lb") vars[[var]] = bnd[1]
-      if (val == "ub") vars[[var]] = bnd[2]
-      
-      # ... or the mid point of the bounds
-      if (val == "mid")  vars[[var]] = mean(c(bnd[1], bnd[2]))
-      
-      # Otherwise any numeric value can be defined
-    }
-    
-    # Take full factorial grid of combinations
-    vars_df = setDT(cross_df(vars))
-  }
-  
-  # Parse variable strings into values
-  vars_df = parse_vars(vars)
-  
-  # Same for difference variables if appropriate
-  if (do_diff == TRUE)
-    dif_vars_df = parse_vars(dif_vars)
-  
-  # ---- Faceting variables ----
-  
-  # Variables to vary - those with length > 1 that are not 'free'
-  vars_len  = apply(vars_df, 2, function(x) length(unique(x)))
-  vars_vary = setdiff(names(vars_len)[vars_len > 1], vars_free)
-  
-  # Number of variables to vary (aside from the 'free' variable)
-  n_vary = length(vars_vary)
-  
-  # NOTE: We could theoretically vary more (up to 5) by adding variables to facet_grid
-  
-  # Throw an error if trying to vary too much
-  if (n_vary > 3)
-    stop("Plotting function can handle at most three 'seq' variables")
-  
-  # ---- Predict outcomes ----
-  
-  # Model machine learning predictor for this endpoint
-  predictor = try_load(o$pth$endpoints, paste0(parent, ".", endpoint))
-  
-  # Evaluate predictor at all variable sets
-  outcome_df = vars_df %>%
-    select(all_of(vars_id)) %>% 
-    evaluate_predictor(predictor) %>%
-    cbind(vars_df)
-  
-  # Also evaluate predictor for all difference variables sets
-  if (do_diff == TRUE) {
-    outcome_dif_df = dif_vars_df %>%
-      select(all_of(vars_id)) %>% 
-      evaluate_predictor(predictor) %>% 
-      cbind(dif_vars_df) %>% 
-      select(relative = best, any_of(vars_join))
-  }
-  
-  # Or if not comparing, construct a trivial difference datatable
-  if (do_diff == FALSE)
-    outcome_dif_df = mutate(vars_df, relative = 0)
-  
-  # ---- Construct plotting datatable ----
-  
-  # Join outcomes and difference outcomes
-  plot_df = outcome_df %>%
-    left_join(y  = outcome_dif_df, 
-              by = vars_join) %>%
-    mutate(best = best - relative, 
-           lb   = lb   - relative, 
-           ub   = ub   - relative) %>%
-    select(all_of(vars_id), y = best, lb, ub) %>%
-    rename(x = !!vars_free)
-  
-  # Function for constructing discrete names for seq variables
-  append_fn = function(df, a) b = paste0(a, ": ", df[[a]])
-  
-  # Create discrete steps for as many variables as necessary (up to 3)
-  if (n_vary >= 1) plot_df$z = append_fn(plot_df, vars_vary[1])
-  if (n_vary >= 2) plot_df$w = append_fn(plot_df, vars_vary[2])
-  if (n_vary >= 3) plot_df$v = append_fn(plot_df, vars_vary[3])
-  
-  # Select all variables required for plotting
-  plot_df %<>% select(x, y, lb, ub, any_of(qc(z, w, v)))
-  
-  # ---- Produce plot ----
-  
-  # Create basic ggplot 
-  g = ggplot(plot_df, aes(x = x, y = y))
-  
-  # No colour needed if only one variable is being varied
-  if (n_vary == 0) {
-    
-    # Plot uncertainty bounds if desired (single colour)
-    if (uncertainty == TRUE)
-      g = g + geom_ribbon(aes(ymin = lb, ymax = ub), 
-                          alpha = 0.2, colour = NA)
-    
-    # Plot best estimate line (single colour)
-    g = g + geom_line(size = 2)
-  }
-  
-  # If any variables being varied, we'll use colours...
-  if (n_vary > 0) {
-    
-    # Plot uncertainty bounds if desired (multiple colours)
-    if (uncertainty == TRUE)
-      g = g + geom_ribbon(aes(ymin = lb, ymax = ub, fill = z), 
-                          alpha = 0.2, colour = NA)
-    
-    # Plot best estimate line (multiple colours)
-    g = g + geom_line(aes(colour = z), size = 2)
-    
-    # Colour for each second value of second variable
-    colours = colour_scheme(colour_pal, n = vars_len[2])
-    g = g + scale_colour_manual(values = colours)
-  }
-  
-  # Facet wrap required if 2 variables and varied
-  if (n_vary == 2)
-    g = g + facet_wrap(~w) #, scales = "free")
-  
-  # Facet gird required if 3 variables and varied
-  if (n_vary == 3)
-    g = g + facet_grid(w~v) #, scales = "free")
-  
-  # Plot a dashed line at y = 0 if plotting difference
-  if (do_diff == TRUE)
-    g = g + geom_hline(yintercept = 0, colour = "black", linetype = "dashed")
-  
-  # ---- Plot aesthetics ----
-  
-  # Extract endpoint details 
-  endpoint_details = all_endpoints %>%
-    filter(id == endpoint) %>%
-    select(-id) %>%
-    unite("details", sep = "::") %>%
-    pull(details)
-  
-  # Construct suitable y axis label to describe endpoint
-  endpoint_name = paste0(endpoint, " (", endpoint_details, ")")
-  
-  # Prettify y axis
-  g = g + scale_y_continuous(name   = endpoint_name, 
-                             labels = comma, 
-                             expand = expansion(mult = c(0.05, 0.05)))
-  
-  # Prettify x axis
-  g = g + scale_x_continuous(name   = vars_free, 
-                             expand = expansion(mult = c(0, 0)))
-  
-  # Prettify theme
-  g = g + theme_classic() + 
-    theme(strip.text    = element_text(size = 20),
-          axis.title    = element_text(size = 20),
-          axis.text     = element_text(size = 12),
-          axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank(), 
-          legend.text   = element_text(size = 14),
-          legend.title  = element_blank(),
-          legend.key    = element_blank(),
-          legend.key.height = unit(2, "lines"),
-          legend.key.width  = unit(2, "lines"),
-          legend.box.background = element_rect())
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
+  # Save figure to file
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
 # Plot series of network-related properties
 # ---------------------------------------------------------
 plot_network_properties = function(o, fig_name, model_input, network) {
-  
+
   # ---- Figure properties ----
-  
+
   # Bin width for age groups
-  age_bin = 10 
-  
+  age_bin = 10
+
   # Quantiles to display on violin plots
   violin_quantiles = c(0.5)  # eg c(0.25, 0.5, 0.75) for median and IQR
-  
+
   # Set font sizes (axes labels, axes text, legend text)
   fontsize = c(16, 12, 13)
-  
+
   # ---- Construct plotting dataframe ----
-  
-  # Number of contacts per person 
+
+  # Number of contacts per person
   count_contact = table(network$from)
-  
+
   # Seperate into IDs and number of contacts
   id = as.numeric(names(unlist(count_contact)))
   n_contacts = as.numeric(unlist(count_contact))
-  
-  # All possible ages (from model input)  
-  ages = model_input$ages
-  
+
+  # All possible ages (from model input)
+  ages = model_input$age$all
+
   # Breaks to create age bins
   age_breaks = seq(0, max(ages) + age_bin, by = age_bin)
-  
+
   # Construct age dataframe to be joined to contact count
   age_df = unique(select(network, from, age = from_age)) %>%
     mutate(age_group = cut(age, age_breaks, include.lowest = TRUE))
-  
+
   # Join number of contacts to age (and age group) of each person
   plot_df = data.table(from = id, n_contacts = n_contacts) %>%
     full_join(age_df, by = "from") %>%
     arrange(from)
-  
+
   # Also construct dataframe of total number in each age group
   demog_df = data.table(age = ages, n = model_input$demography) %>%
     mutate(age_group = cut(age, age_breaks, include.lowest = TRUE)) %>%
     group_by(age_group) %>%
     summarise(n = sum(n)) %>%
-    ungroup() %>%
-    setDT()
-  
+    as.data.table()
+
   # ---- Fig a) Number of contacts per person ----
-  
+
   # Construct subplot
-  g1 = ggplot(plot_df, aes(x = n_contacts)) + 
-    geom_density(aes(y = ..count.., colour = age_group, fill = age_group), 
-                 adjust = 2, alpha = 0.1, size = 1.5) + 
-    geom_vline(xintercept = model_input$contacts, size = 1.5, 
+  g1 = ggplot(plot_df, aes(x = n_contacts)) +
+    geom_density(aes(y = ..count.., colour = age_group, fill = age_group),
+                 adjust = 2, alpha = 0.1, size = 1.5) +
+    geom_vline(xintercept = model_input$contacts, size = 1.5,
                colour = "darkgrey", linetype = "dashed")
-  
+
   # Set axes labels
-  g1 = g1 + scale_x_continuous(expand = c(0, 0)) + 
-    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05))) + 
-    xlab("Number of contacts per person") + 
+  g1 = g1 + scale_x_continuous(expand = c(0, 0)) +
+    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05))) +
+    xlab("Number of contacts per person") +
     ylab("Number of people by age group")
-  
+
   # Prettify subplot theme
-  g1 = g1 + theme_classic() + 
-    theme(axis.title = element_text(size = fontsize[1]),
-          axis.text  = element_text(size = fontsize[2]), 
-          legend.position = "none")
-  
-  # ---- Fig b) Number of contacts per person (normalised by age group) ----
-  
-  # Construct subplot
-  g2 = ggplot(plot_df, aes(x = age_group, y = n_contacts, fill = age_group)) + 
-    geom_violin(adjust = 2, draw_quantiles = violin_quantiles)
-  
-  # Set axes labels
-  g2 = g2 + guides(fill = guide_legend(nrow = 1)) + 
-    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) + 
-    xlab("Normalised by age group") + 
-    ylab("Number of contacts per person")
-  
-  # Prettify subplot theme (we take legend from this subplot)
-  g2 = g2 + theme_classic() + 
+  g1 = g1 + theme_classic() +
     theme(axis.title = element_text(size = fontsize[1]),
           axis.text  = element_text(size = fontsize[2]),
-          legend.position = "bottom", 
-          legend.title = element_blank(), 
+          legend.position = "none")
+
+  # ---- Fig b) Number of contacts per person (normalised by age group) ----
+
+  # Construct subplot
+  g2 = ggplot(plot_df, aes(x = age_group, y = n_contacts, fill = age_group)) +
+    geom_violin(adjust = 2, draw_quantiles = violin_quantiles)
+
+  # Set axes labels
+  g2 = g2 + guides(fill = guide_legend(nrow = 1)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    xlab("Normalised by age group") +
+    ylab("Number of contacts per person")
+
+  # Prettify subplot theme (we take legend from this subplot)
+  g2 = g2 + theme_classic() +
+    theme(axis.title = element_text(size = fontsize[1]),
+          axis.text  = element_text(size = fontsize[2]),
+          legend.position = "bottom",
+          legend.title = element_blank(),
           legend.text  = element_text(size = fontsize[3]),
           legend.key   = element_blank(),
           legend.key.height = unit(1.5, "lines"),
           legend.box.background = element_rect())
-  
+
   # ---- Fig c) Number of contacts per person (normalised by age group) ----
-  
+
   # Construct subplot
-  g3 = ggplot(plot_df, aes(x = n_contacts)) + 
-    geom_density(aes(y = ..count.., fill = age_group, colour = age_group), 
-                 position = "stack", adjust = 2) + 
-    geom_density(aes(y = ..count..), adjust = 2, size = 1.2) + 
-    geom_vline(xintercept = model_input$contacts, size = 1.5, 
+  g3 = ggplot(plot_df, aes(x = n_contacts)) +
+    geom_density(aes(y = ..count.., fill = age_group, colour = age_group),
+                 position = "stack", adjust = 2) +
+    geom_density(aes(y = ..count..), adjust = 2, size = 1.2) +
+    geom_vline(xintercept = model_input$contacts, size = 1.5,
                colour = "darkgrey", linetype = "dashed")
-  
+
   # Prettify subplot axes
-  g3 = g3 + scale_x_continuous(expand = c(0, 0)) + 
-    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05))) + 
-    xlab("Number of contacts per person") + 
+  g3 = g3 + scale_x_continuous(expand = c(0, 0)) +
+    scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05))) +
+    xlab("Number of contacts per person") +
     ylab("Total number of people")
-  
+
   # Prettify subplot theme
-  g3 = g3 + theme_classic() + 
+  g3 = g3 + theme_classic() +
     theme(axis.title = element_text(size = fontsize[1]),
-          axis.text  = element_text(size = fontsize[2]), 
+          axis.text  = element_text(size = fontsize[2]),
           legend.position = "none")
-  
+
   # ---- Fig d) Number of contacts per person (normalised by age group) ----
-  
+
   # Construct subplot
-  g4 = ggplot(demog_df, aes(x = age_group, y = n, fill = age_group)) + 
+  g4 = ggplot(demog_df, aes(x = age_group, y = n, fill = age_group)) +
     geom_bar(stat = "identity", color = "black")
-  
+
   # Prettify subplot axes
-  g4 = g4 + xlab("Age group") + ylab("Number of people") + 
+  g4 = g4 + xlab("Age group") + ylab("Number of people") +
     scale_y_continuous(labels = comma, expand = expansion(mult = c(0, 0.05)))
-  
+
   # Prettify subplot theme
-  g4 = g4 + theme_classic() + 
+  g4 = g4 + theme_classic() +
     theme(axis.title = element_text(size = fontsize[1]),
-          axis.text  = element_text(size = fontsize[2]), 
+          axis.text  = element_text(size = fontsize[2]),
           legend.position = "none")
-  
+
   # ---- Put it all together ----
-  
+
   # Extract legend from subplot b
   g_legend = ggpubr::get_legend(g2)
-  
+
   # Arrange all subplots into a figure with the legend
-  g = ggarrange(g1, g2, g3, g4, nrow = 2, ncol = 2, align = "hv", 
+  g = ggarrange(g1, g2, g3, g4, nrow = 2, ncol = 2, align = "hv",
                 legend.grob = g_legend, legend = "bottom")
+
+  g <- g + theme(plot.background = element_rect(fill = "white", color = "white"))
   
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
+  # Save figure
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
@@ -2160,7 +1552,7 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
   age_bin = 5
   
   # Set font sizes (title, facets, and ticks)
-  fontsize = c(30, 18, 12)
+  fontsize = c(16, 12, 13)
   
   # Two scale colour bars
   colour_low  = "grey80"
@@ -2170,10 +1562,10 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
   # ---- Figure set up ----
   
   # Maximum possible age (from model input)  
-  max_age = max(model_input$ages)
+  max_age = max(model_input$age$all)
   
   # Breaks to create age bins
-  age_breaks = seq(0, max_age + age_bin, by = age_bin)
+  age_breaks = seq(0, max_age, by = age_bin)
   
   # Layers in this network
   all_layers = unique(network$layer)
@@ -2183,7 +1575,8 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
   else all_layers = c(all_layers, "all")
   
   # All layers combined - we'll always plot this
-  edgelist_df = network[, layer := "all"]
+  edgelist_df = network %>% 
+    mutate(layer = "all")
   
   # If constructed of multiple layers, plot these too
   if (length(all_layers) > 1) 
@@ -2193,8 +1586,8 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
   
   # Specify age groups for all contacts in edgelist
   age_bin_df = edgelist_df %>%
-    mutate(age1 = cut(from_age, age_breaks, include.lowest = TRUE), 
-           age2 = cut(to_age,   age_breaks, include.lowest = TRUE))
+    mutate(age1 = cut(from_age, c(age_breaks, max_age), include.lowest = TRUE, right = FALSE), 
+           age2 = cut(to_age,   c(age_breaks, max_age), include.lowest = TRUE, right = FALSE))
   
   # Vector of all age bins
   age_bins = levels(age_bin_df$age1)
@@ -2203,14 +1596,13 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
   grouped_df = age_bin_df %>%
     group_by(layer, age1, age2) %>%
     summarize(count = n()) %>%
-    ungroup() %>%
     group_by(layer) %>%
     mutate(proportion = count / max(count)) %>%
     ungroup() %>%
     mutate(count = count / max(count)) %>%
     pivot_longer(cols = c(count, proportion), 
                  names_to = "type") %>%
-    setDT()
+    as.data.table()
   
   # Fill missing with NA for prettier figures
   plot_df = grouped_df %>%
@@ -2251,11 +1643,9 @@ plot_contact_matrices = function(o, fig_name, model_input, network) {
           axis.text.y  = element_text(size = fontsize[3]), 
           panel.border = element_rect(size = 1, colour = "black", fill = NA))
   
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
   
-  return(g)
+  # Save figure
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
@@ -2326,21 +1716,13 @@ plot_durations = function(o, fig_name, model_input) {
   
   # Prettify theme
   g = g + theme_classic() + 
-    theme(plot.title   = element_text(size = 32, hjust = 0.5),
-          strip.text   = element_text(size = 16),
-          axis.title   = element_text(size = 28), 
-          axis.text.x  = element_text(size = 12), 
-          axis.text.y  = element_blank(), 
-          axis.ticks.y = element_blank(), 
-          panel.border = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank())
+    theme(plot.title = element_text(size = 30, hjust = 0.5),
+          strip.text = element_text(size = 15),
+          axis.title = element_text(size = 24), 
+          axis.text  = element_text(size = 12))
   
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
+  # Save to file
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
@@ -2447,11 +1829,8 @@ plot_viral_load = function(o, fig_name, model_input) {
           legend.key.height = unit(2, "lines"),
           legend.box.background = element_rect())
   
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
+  # Do not save figure if input is trivial  
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
@@ -2460,12 +1839,11 @@ plot_viral_load = function(o, fig_name, model_input) {
 plot_immunity_profiles = function(o, fig_name, model_input) {
   
   # Which vaccines to plot, along with a description
-  immunity_dict = c(acquired = "SARS-CoV-2 infection", 
-                    vaccine  = "COVID-19 vaccination", 
-                    prep     = "Pre-exposure prophylaxis")
+  immunity_dict = c(vaccine  = "Immunity from COVID-19 vaccination", 
+                    acquired = "Immunity from natural SARS-CoV-2 infection")
   
   # Colour scheme
-  colours = c("blue4", "goldenrod2", "forestgreen")
+  colours = c("navy", "goldenrod2")
   
   # Data point colour
   data_colour = "grey5"
@@ -2494,11 +1872,10 @@ plot_immunity_profiles = function(o, fig_name, model_input) {
   # Total number of days we can plot for
   n_days_total = model_input$n_days - model_input$n_days_init
   
-  # Extract effects for acquired, vaccine (+ booster), and PrEP
+  # Extract effects for acquired and vaccine (and also booster)
   acquired_effect = model_input$acquired_immunity
   vaccine_effect  = model_input$vaccine$profile
   booster_effect  = model_input$booster_profile
-  prep_effect     = model_input$prep$profile
   
   # Time indices for vaccine booster
   boost_idx1 = min(time_boost) : n_days_total
@@ -2508,29 +1885,25 @@ plot_immunity_profiles = function(o, fig_name, model_input) {
   vaccine_effect[boost_idx1] = booster_effect[boost_idx2]
   
   # Overall efficacy datatable
-  line_df = data.table(acquired = acquired_effect, 
-                       vaccine  = vaccine_effect, 
-                       prep     = prep_effect, 
+  line_df = data.table(vaccine  = vaccine_effect, 
+                       acquired = acquired_effect, 
                        day = 1 : n_days_total) %>%
     pivot_longer(cols = -day, names_to = "type") %>%
     arrange(type, day) %>%
     filter(day <= n_days) %>%
     mutate(value = value * 100, 
            type = factor(immunity_dict[type], levels = unname(immunity_dict))) %>%
-    setDT()
+    as.data.table()
   
   # ... of which is transmission blocking
   area_df = line_df %>%
     mutate(value = ifelse(type == immunity_dict[["vaccine"]], 
-                          value * model_input$vaccine$infection_blocking, value))
-  # value = ifelse(type == immunity_dict[["prep"]], 
-  #                value * model_input$prep$infection_blocking, value))
+                          value * model_input$vaccine$transmission_blocking, value))
   
   # Dataframe for vaccine efficacy data points
   data_df = data.table(day   = c(time_dose1, time_dose2, time_boost), 
                        value = c(eff_dose1,  eff_dose2,  eff_boost), 
-                       type  = immunity_dict[["vaccine"]]) %>%
-    mutate(type = factor(type, levels = unname(immunity_dict)))
+                       type  = immunity_dict[["vaccine"]])
   
   # ---- Produce plot ----
   
@@ -2556,13 +1929,10 @@ plot_immunity_profiles = function(o, fig_name, model_input) {
     scale_y_continuous(expand = expansion(mult = c(0.00, 0.00)), 
                        breaks = seq(0, 100, by = 10))
   
-  # Set facet labels
-  g = facet_labels(g)
-  
   # Prettify theme
   g = g + theme_classic() + 
     theme(strip.text = element_text(size = 20),
-          axis.title = element_text(size = 24),
+          axis.title = element_text(size = 20),
           axis.text  = element_text(size = 14),
           axis.line  = element_blank(),
           panel.border = element_rect(size = 1, colour = "black", fill = NA),
@@ -2570,165 +1940,14 @@ plot_immunity_profiles = function(o, fig_name, model_input) {
           legend.position = "none",
           strip.background = element_blank())
   
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
-}
-
-# ---------------------------------------------------------
-# Plot basic severe disease probabilities by age
-# ---------------------------------------------------------
-plot_severity_age = function(o, fig_name, model_input) {
-  
-  # Set colour scheme
-  colours = "brewer::accent"
-  
-  # Dictionary for severe disease states
-  state_dict = c(severe = "Severe disease", 
-                 crit   = "Critical disease", 
-                 dead   = "Death")
-  
-  # Severity factor for primary variant with no vaccine, prep, or previous exposure
-  severity_scaler = model_input$variants$severity
-  
-  # Extract severe disease probabilities by age - group care and home
-  plot_df = model_input$prognosis$age %>%
-    filter(state %in% model_input$model_states$severe) %>%
-    mutate(value = value * severity_scaler, 
-           state = str_remove_all(state, "_.*")) %>%
-    group_by(state, age) %>%
-    summarise(value = sum(value)) %>%
-    ungroup() %>%
-    mutate(state = recode(state, !!!state_dict), 
-           state = factor(state, state_dict)) %>%
-    setDT()
-  
-  # Plot as a stacked area by age
-  g = ggplot(plot_df, aes(x = age, y = value, fill = state)) + 
-    geom_area()
-  
-  # Use pre-defined colour scheme for distribution fills
-  g = g + scale_fill_manual(values = colour_scheme(colours, n = length(state_dict)))
-  
-  # Prettify axes
-  g = g + labs(fill = "Disease state") + 
-    scale_x_continuous(name   = "Age (in years)", 
-                       expand = expansion(mult = c(0, 0))) + 
-    scale_y_continuous(name   = "Disease prognosis probability", 
-                       expand = expansion(mult = c(0, 0.05)), 
-                       labels = percent)
-  
-  # Prettify theme
-  g = g + theme_classic() + 
-    theme(strip.text    = element_text(size = 20),
-          axis.title.x  = element_text(size = 24, margin = margin(t = 20, b = 10)),
-          axis.title.y  = element_text(size = 24, margin = margin(l = 10, r = 20)),
-          axis.text     = element_text(size = 12),
-          axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank(), 
-          legend.text   = element_text(size = 14),
-          legend.title  = element_text(size = 16),
-          legend.key    = element_blank(),
-          legend.position = "bottom", 
-          legend.key.height = unit(2, "lines"),
-          legend.key.width  = unit(2, "lines"),
-          legend.box.background = element_rect())
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
-  
-}
-
-# ---------------------------------------------------------
-# Plot exposure & dose response effects on disease severity
-# ---------------------------------------------------------
-plot_severity_factors = function(o, fig_name, model_input) {
-  
-  # Dictionary for severe disease states
-  state_dict = c(severe = "Severe disease", 
-                 crit   = "Critical disease", 
-                 dead   = "Death")
-  
-  # Extract prognosis severity multiplicative factors
-  plot_df = model_input$prognosis$severity %>%
-    mutate(state = str_remove_all(state, "_.*")) %>%
-    group_by(variant, vaccine_doses, num_infections, state) %>%
-    summarise(value = mean(value)) %>%
-    ungroup() %>%
-    mutate(state   = factor(state,   names(state_dict)),
-           variant = factor(variant, model_input$variants$id)) %>%
-    setDT()
-  
-  # Plot severity in a dose x exposure grid
-  g = ggplot(plot_df) +
-    aes(x = num_infections,
-        y = vaccine_doses,
-        colour = value,
-        size   = value) +
-    geom_point()
-  
-  # Use user-defined IDs and names for viral variants
-  variant_dict = setNames(model_input$variants$name, 
-                          model_input$variants$id)
-  
-  # We're apply the predefined dictionaries to facet strips
-  strip_labels = labeller(.cols = as_labeller(state_dict), 
-                          .rows = as_labeller(variant_dict))
-  
-  # Fact by disease state and variants modelled
-  g = g + facet_grid(variant~state, labeller = strip_labels)
-  
-  # Set a greyscale colour scheme
-  g = g + scale_colour_gradient(high  = "black", 
-                                low   = "darkgrey", 
-                                guide = "none")
-  
-  # Prettify axes
-  g = g + labs(size = "Prognosis multiplicative factor") + 
-    scale_x_continuous(name   = "Number of infections experienced", 
-                       breaks = 0 : model_input$max_infection_count) + 
-    scale_y_continuous(name   = "Number of vaccine doses received", 
-                       breaks = 0 : model_input$max_dose_count)
-  
-  # Prettify theme
-  g = g + theme_classic() + 
-    theme(strip.text    = element_text(size = 20),
-          axis.title.x  = element_text(size = 24, margin = margin(t = 20, b = 10)),
-          axis.title.y  = element_text(size = 24, margin = margin(l = 10, r = 20)),
-          axis.text     = element_text(size = 12),
-          axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank(), 
-          legend.text   = element_text(size = 14),
-          legend.title  = element_text(size = 16),
-          legend.key    = element_blank(),
-          legend.position = "bottom", 
-          legend.key.height = unit(2, "lines"),
-          legend.key.width  = unit(2, "lines"),
-          legend.box.background = element_rect())
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
+  # Save figure to file
+  fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
 # Plot seasonality profile best fit and bounds
 # ---------------------------------------------------------
-plot_seasonality_profile = function(o, fig_name, ..., labels = NULL, colours = NULL) {
-  
-  # WARNING: Currently not handling uncertainty - will just plot the default values
-  #          if uncertainty is defined for any seasonality profile parameters
+plot_seasonality_profile = function(o, fig_name, labels = NULL, colours = NULL, ...) {
   
   # Extract model inputs
   model_inputs = list(...)
@@ -2789,15 +2008,14 @@ plot_seasonality_profile = function(o, fig_name, ..., labels = NULL, colours = N
   threshold_df = plot_df %>%
     group_by(id, name, metric) %>%
     mutate(value = min(value)) %>%
-    ungroup() %>%
-    setDT()
+    as.data.table()
   
   # Text to accompany minimum lines
   text_df = plot_df %>%
     group_by(id, name, metric) %>%
     slice_min(value, with_ties = FALSE) %>%
     mutate(text = paste("Peak summer\n effect:", value)) %>%
-    setDT()
+    as.data.table()
   
   # Plot all seasonality profiles provided
   g = ggplot(plot_df) + 
@@ -2839,202 +2057,11 @@ plot_seasonality_profile = function(o, fig_name, ..., labels = NULL, colours = N
           legend.key.width  = unit(2, "lines"),
           legend.box.background = element_rect())
   
-  # Save figure (as long as fig_name is not trivial)
+  # Do not save figure if input is trivial  
   if (!is.null(fig_name))
     fig_save(o, g, fig_name)
   
   return(g)
-}
-
-# ---------------------------------------------------------
-# Plot all options for air pollution - susceptibility relationship
-# ---------------------------------------------------------
-plot_pollution_relationships = function(o, fig_name, model_input) {
-  
-  # Air pollution levels to evaluate
-  x_values = 1 : 20
-  
-  # Linear increase in susceptibility due to worsening air quality
-  sus_increase = (model_input$air_pollution$susceptibility - 1)
-  y_values     = 1 + x_values * sus_increase
-  
-  # Transform as appropriate
-  values_df = data.table(linear = y_values, 
-                         log    = 1 + log(y_values), 
-                         log10  = 1 + log10(y_values))
-  
-  # Construct plotting dataframe
-  plot_df = values_df %>%
-    mutate(x = x_values) %>%
-    pivot_longer(cols     = -x, 
-                 names_to = "relationship") %>%
-    mutate(relationship = fct_inorder(relationship)) %>%
-    arrange(relationship) %>%
-    setDT()
-  
-  # Plot the curves for all relationships
-  g = ggplot(plot_df, aes(x = x, y = value, colour = relationship)) + 
-    geom_line(size = 2)
-  
-  # Plot reference line for air pollution level modelled in this scenario
-  g = g + geom_vline(xintercept = model_input$air_pollution_exposure, 
-                     linetype   = "dashed")
-  
-  # Add plot title and axes labels
-  g = g + ggtitle("Air pollution-susceptibility relationship assumptions") +
-    xlab("Increase in air pollution") +
-    ylab("Increase in susceptibility per SARS-CoV-2 exposure")
-  
-  # Prettify axes
-  g = g + 
-    scale_y_continuous(limits = c(1, NA), 
-                       expand = expansion(mult = c(0, 0.05))) + 
-    scale_x_continuous(expand = expansion(mult = c(0, 0)))
-  
-  # Prettify theme
-  g = g + theme_classic() + 
-    theme(plot.title    = element_text(size = 28, hjust = 0.5),
-          axis.title    = element_text(size = 24),
-          axis.text     = element_text(size = 14),
-          axis.line     = element_blank(),
-          panel.border  = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank(), 
-          legend.text   = element_text(size = 16),
-          legend.title  = element_blank(),
-          legend.key    = element_blank(),
-          legend.position = "right", 
-          legend.key.height = unit(2, "lines"),
-          legend.key.width  = unit(2, "lines"),
-          legend.box.background = element_rect())
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
-}
-
-# ---------------------------------------------------------
-# Plot parameter uncertainty distributions
-# ---------------------------------------------------------
-plot_uncertainty = function(o, fig_name) {
-  
-  # Colour map and palette to use
-  colours = "viridis::viridis" 
-  
-  # Load datatable of parameter set values
-  uncert_df = try_load(o$pth$uncertainty, "uncertainty", throw_error = FALSE)
-  
-  # Return out if doesn't exist
-  if (is.null(uncert_df))
-    return()
-  
-  # Density plots of parameter sample distributions
-  g = ggplot(uncert_df, aes(x = value, colour = param, fill = param)) +
-    geom_density(adjust = 1, colour = "black", show.legend = FALSE) +
-    facet_wrap(~param, scales = "free")
-  
-  # Number of colours to generate
-  n_colours = length(unique(uncert_df$param))
-  
-  # Use pre-defined colour scheme for distribution fills
-  g = g + scale_fill_manual(values = colour_scheme(colours, n = n_colours))
-  
-  # Set a figure title and axes titles
-  g = g + ggtitle("Parameter uncertainty distributions") + 
-    ylab("Probability density") + xlab("Parameter value")
-  
-  # Set x axes to user-defined limits
-  g = g + scale_x_continuous(expand = expansion(mult = c(0, 0))) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
-  
-  # Prettify theme
-  g = g + theme_classic() + 
-    theme(plot.title   = element_text(size = 32, hjust = 0.5),
-          strip.text   = element_text(size = 18),
-          axis.title   = element_text(size = 28), 
-          axis.text.x  = element_text(size = 12), 
-          axis.text.y  = element_blank(), 
-          axis.ticks.y = element_blank(), 
-          panel.border = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank())
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
-  
-  return(g)
-}
-
-# ---------------------------------------------------------
-# Plot historgam of time taken to simulate the model
-# ---------------------------------------------------------
-plot_simulation_time = function(o, fig_name, ...) {
-  
-  # Collate and interpret inputs so we know what to plot
-  list[f, baseline] = fig_properties(o, list(...))
-  
-  # ---- Extract model details ----
-  
-  # Initiate plotting dataframe
-  time_list = list()
-  
-  # Loop through metrics to plot
-  for (scenario in f$scenarios) {
-    
-    # Load result file for this scenario
-    if (scenario == f$baseline_name) result = baseline else {
-      result = try_load(o$pth$scenarios, scenario) 
-    }
-    
-    # Extract time taken per simulation and convert to duration
-    time_taken = as.duration(seconds_to_period(result$time_raw))
-    
-    # Store time taken for each simulation in a list of datatables
-    time_list[[scenario]] = 
-      data.table(scenario = scenario, time = time_taken)
-  }
-  
-  # Bind into single long datatable
-  time_df = rbindlist(time_list) %>%
-    mutate(scenario = recode(scenario, !!!f$scenario_names), 
-           scenario = fct_inorder(scenario))
-  
-  # ---- Produce plot ----
-  
-  # Density plots of parameter sample distributions
-  g = ggplot(time_df, aes(x = time, colour = scenario, fill = scenario)) +
-    geom_density(adjust = 1, colour = "black", show.legend = FALSE) +
-    facet_wrap(~scenario, scales = "free_y", labeller = f$label_wrap)
-  
-  # Use pre-defined colour scheme for distribution fills
-  g = g + scale_fill_manual(values = f$colours)
-  
-  # Set a figure title and axes titles
-  g = g + ggtitle("Model simulation time") + 
-    ylab("Probability density") + xlab("Scenario")
-  
-  # Set x axes as a time (duration) scale
-  g = g + scale_x_time(expand = expansion(mult = c(0, 0))) + 
-    scale_y_continuous(expand = expansion(mult = c(0, 0.05)))
-  
-  # Prettify theme
-  g = g + theme_classic() + 
-    theme(plot.title   = element_text(size = 32, hjust = 0.5),
-          strip.text   = element_text(size = 18),
-          axis.title   = element_text(size = 28), 
-          axis.text.x  = element_text(size = 12, hjust = 1, angle = 50), 
-          axis.text.y  = element_blank(), 
-          axis.ticks.y = element_blank(), 
-          panel.border = element_rect(size = 1, colour = "black", fill = NA),
-          panel.spacing = unit(1, "lines"),
-          strip.background = element_blank())
-  
-  # Save figure (as long as fig_name is not trivial)
-  if (!is.null(fig_name))
-    fig_save(o, g, fig_name)
 }
 
 # ---------------------------------------------------------
@@ -3064,25 +2091,23 @@ apply_colourscale = function(g, f, idx, plot_df) {
                       max(plot_df$value, na.rm = TRUE))
   
   # By default, scale_fill_distiller use negative colour direction
-  colour_reverse = str_sub(colour_palette, 1, 1) == "-"
+  colour_direction = -1
   
-  # If reversing colour, then remove the "-" character
-  if (colour_reverse == TRUE)
-    colour_palette = str_sub(colour_palette, 2, -1)
+  # However, this can be reversed using "-" as first char of palette name
+  if (str_sub(colour_palette, 1, 1) == "-") {
+    
+    # Reverse colour, then remove the "-" character
+    colour_direction = -colour_direction
+    colour_palette   = str_sub(colour_palette, 2, -1)
+  }
   
   # Default behaviour: continuous scale
   if (is.null(f$colour_bins)) {
     
-    # Manually define appropriate number of colours 
-    colours = colour_scheme(colour_palette, n = 8)
-    
-    # Reverse these colours if needed
-    if (colour_reverse == TRUE)
-      colours = rev(colours)
-    
     # Set continuous colour bar
-    g = g + scale_fill_gradientn(
-      colours   = colours, 
+    g = g + scale_fill_distiller(
+      palette   = colour_palette, 
+      direction = colour_direction, 
       limits    = colour_limits, 
       labels    = f$z_labels)
     
@@ -3092,52 +2117,175 @@ apply_colourscale = function(g, f, idx, plot_df) {
     if (is.na(colour_limits[1])) colour_limits[1] = min(plot_df$value, na.rm = TRUE)
     if (is.na(colour_limits[2])) colour_limits[2] = max(plot_df$value, na.rm = TRUE)
     
-    # Manually define appropriate number of colours 
-    colours = colour_scheme(colour_palette, n = length(f$colour_bins) - 1)
-    
-    # Reverse these colours if needed
-    if (colour_reverse == TRUE)
-      colours = rev(colours)
-    
-    # Set discrete colour bar
-    g = g + scale_fill_stepsn(
-      colours = colours, 
-      limits = colour_limits,
-      labels = f$z_labels, 
-      breaks = f$colour_bins,
-      guide  = guide_coloursteps(even.steps = FALSE)) 
+    # Set continuous colour bar
+    g = g + scale_fill_fermenter(
+      palette   = colour_palette,
+      direction = colour_direction,
+      limits    = colour_limits,
+      labels    = f$z_labels, 
+      breaks    = f$colour_bins,
+      guide     = guide_coloursteps(even.steps = FALSE)) 
   }
   
   return(g)
 }
 
 # ---------------------------------------------------------
+# Determine which scenarios to plot based on user inputs
+# ---------------------------------------------------------
+fig_scenarios = function(o, args) {
+  
+  # Load default figure properties
+  p = fig_defaults()
+  
+  # Check any inputs provided by the user are valid
+  unknown_properties = setdiff(names(args), names(p))
+  if (length(unknown_properties) > 0)
+    stop("Unrecognised figure property: ", paste(unknown_properties, collapse = ", "))
+  
+  # Overwrite defaults for user-defined items
+  p[names(args)] = args
+  
+  # Initiate figure list
+  f = list(plot_baseline = p$plot_baseline)
+  
+  # ---- Figure scenarios ----
+  
+  # Check whether scenarios are defined as a matrix
+  if (is.matrix(p$scenarios)) {
+    
+    # Interpreted as scenario groupings - store these groupings
+    p$scenario_matrix = p$scenarios
+    
+    # Flatten scenarios into a vector
+    p$scenarios = as.vector(p$scenarios)
+  }
+  
+  # Check whether we actually want to plot a baseline
+  if (f$plot_baseline == TRUE) {
+    
+    # Name of baseline (either default or an alternative)
+    if (is.null(p$alt_baseline)) f$baseline_name = "baseline" else f$baseline_name = p$alt_baseline
+    
+    # If this baseline is already within the scenarios, do not plot it twice
+    f$plot_baseline = !f$baseline_name %in% p$scenarios
+    
+  } else {
+    
+    # No baseline - use a pseudo
+    f$baseline_name = p$scenarios[1]
+    p$scenarios     = p$scenarios[-1]
+    
+    # Sanity check that a baseline is provided if plotting relative to that baseline
+    if (p$relative == TRUE)
+      stop("You must provide a baseline if 'relative' is set to TRUE")
+  }
+  
+  # Append all non-baseline scenarios to scenario vector
+  f$scenarios   = union(f$baseline_name, p$scenarios)
+  f$n_scenarios = length(f$scenarios)
+  
+  # Full scenario names as defined in yaml file - try cheaper non-array call
+  f$scenario_names = parse_yaml(o, "*read*", read_array = FALSE)[f$scenarios]
+  
+  # If these are array scenarios, we'll need the more expensive read_array version of *read*
+  if (any(is.na(f$scenario_names)))
+    f$scenario_names = parse_yaml(o, "*read*", read_array = TRUE)[f$scenarios]
+  
+  # Check if any names are still missing - throw an error if so
+  missing_names = f$scenarios[is.na(f$scenario_names)]
+  if (length(missing_names) > 0)
+    stop("Scenario names not recognised: \n", paste(missing_names, collapse = "\n"))
+  
+  # Apply custom function to these scenario names if given
+  if (!is.null(args$scenario_name_fn))
+    f$scenario_names = args$scenario_name_fn(f$scenario_names)
+  
+  # ---- Relative to a baseline ----
+  
+  # Do we want to plot difference between scenarios and baseline
+  if (p$relative == TRUE) {
+    
+    # Reduce number of scenarios by one as we won't plot baseline explictly
+    f$n_scenarios = f$n_scenarios - 1
+    
+    # Sanity check that not only a baseline is provided
+    if (f$n_scenarios == 0)
+      stop("To use 'relative' you must provide some alternative scenarios and/or strategies")
+    
+    # We won't be plotting the baseline in this case
+    f$plot_baseline = FALSE
+  }
+  
+  # Throw an error if no scenarios identified
+  if (f$n_scenarios == 0)
+    stop("No scenarios identified - plot a baseline and/or scenarios and/or strategies")
+  
+  # ---- Scenario groupings ----
+  
+  # Check whether scenarios should be grouped
+  if (!is.null(p$scenario_matrix)) {
+    
+    # Construct function to append baseline details (if needed)
+    add_baseline_fn = function(x) {
+      
+      # Normal use case: a baseline for each scenario_group
+      if (!p$aes_reverse)
+        y = expand_grid(scenario_group = unique(x$scenario_group),
+                        scenario_type  = x$scenario_type[1],
+                        scenario_id    = f$baseline_name)
+      
+      # Alternative use case: baseline in it's own facet
+      if (p$aes_reverse)
+        y = expand_grid(scenario_group = "Baseline",
+                        scenario_type  = "Baseline",
+                        scenario_id    = f$baseline_name)
+      
+      # Bind with existing dataframe
+      z = rbind(y, x)
+    }
+    
+    # Generate a dataframe describing the groupings
+    f$scenario_groups = as.data.table(p$scenario_matrix) %>%
+      mutate(scenario_group = rownames(p$scenario_matrix)) %>%
+      pivot_longer(cols = -scenario_group, 
+                   names_to  = "scenario_type", 
+                   values_to = "scenario_id") %>%
+      {if (f$plot_baseline) add_baseline_fn(.) else .} %>%
+      left_join(data.table(scenario_id = f$scenarios, 
+                           scenario    = f$scenario_names), 
+                by = "scenario_id") %>%
+      select(scenario, scenario_type, scenario_group) %>%
+      as.data.table()
+    
+    # Store the number of groups for easy referencing
+    f$n_scenario_groups = c(nrow(p$scenario_matrix), 
+                            ncol(p$scenario_matrix))
+  }
+  
+  # Do we have multiple scenarios to plot?
+  if (f$n_scenarios > 1) {
+    
+    # They can either be grouped...
+    if (!is.null(p$scenario_matrix)) {
+      f$plot_type = "scenario_group"
+      
+    } else {  # ... or not
+      f$plot_type = "scenario"
+    }
+  }
+  
+  return(f)
+}
+
+# ---------------------------------------------------------
 # Generate figure properties based on user inputs
 # ---------------------------------------------------------
-fig_properties = function(o, args) {
+fig_properties = function(o, f, yaml, args) {
   
   # Load defaults and overwrite user-defined items
   p = fig_defaults()
   p[names(args)] = args
-  
-  # ---- Load baseline (or alt baseline) file ----
-  
-  # Scenarios to plot
-  f = fig_scenarios(o, args)
-  
-  # Handle alternative functionality case - file fed in directly
-  if (!is.null(p$plot_file)) baseline = p$plot_file
-  else {
-    
-    # Otherwise load baseline file
-    baseline = try_load(o$pth$scenarios, f$baseline_name)
-  }
-  
-  # For the most part, it's the input we're interested in here
-  yaml = baseline$input
-  
-  # Can now safely remove reference to plot_file
-  p$plot_file = NULL
   
   # ---- Metrics and groupings to plot ----
   
@@ -3211,11 +2359,8 @@ fig_properties = function(o, args) {
             "\n  - Plot type: ", f$plot_type, 
             "\n  - Plot by: ",   ifelse(!is.null(p$plot_by), p$plot_by, "none"))
     
-    # Append 'zero metrics' flag
-    p = list.append(p, n_metrics = 0)
-    
     # Return out early
-    return(list(p, baseline))
+    return(list.append(p, n_metrics = 0))
   }
   
   # Number of metrics to plot
@@ -3417,154 +2562,6 @@ fig_properties = function(o, args) {
   # Order list items alphabetically
   f = f[sort(names(f))]
   
-  return(list(f, baseline))
-}
-
-# ---------------------------------------------------------
-# Determine which scenarios to plot based on user inputs
-# ---------------------------------------------------------
-fig_scenarios = function(o, args) {
-  
-  # Load default figure properties
-  p = fig_defaults()
-  
-  # Check any inputs provided by the user are valid
-  unknown_properties = setdiff(names(args), names(p))
-  if (length(unknown_properties) > 0)
-    stop("Unrecognised figure property: ", paste(unknown_properties, collapse = ", "))
-  
-  # Overwrite defaults for user-defined items
-  p[names(args)] = args
-  
-  # Initiate figure list
-  f = list(plot_baseline = p$plot_baseline)
-  
-  # ---- Figure scenarios ----
-  
-  # Check whether scenarios are defined as a matrix
-  if (is.matrix(p$scenarios)) {
-    
-    # Interpreted as scenario groupings - store these groupings
-    p$scenario_matrix = p$scenarios
-    
-    # Flatten scenarios into a vector
-    p$scenarios = as.vector(p$scenarios)
-  }
-  
-  # Check whether we actually want to plot a baseline
-  if (f$plot_baseline == TRUE) {
-    
-    # Name of baseline (either default or an alternative)
-    if (is.null(p$alt_baseline)) f$baseline_name = "baseline" else f$baseline_name = p$alt_baseline
-    
-    # If this baseline is already within the scenarios, do not plot it twice
-    f$plot_baseline = !f$baseline_name %in% p$scenarios
-    
-  } else {
-    
-    # No baseline - use a pseudo
-    f$baseline_name = p$scenarios[1]
-    p$scenarios     = p$scenarios[-1]
-    
-    # Sanity check that a baseline is provided if plotting relative to that baseline
-    if (p$relative == TRUE)
-      stop("You must provide a baseline if 'relative' is set to TRUE")
-  }
-  
-  # Append all non-baseline scenarios to scenario vector
-  f$scenarios   = union(f$baseline_name, p$scenarios)
-  f$n_scenarios = length(f$scenarios)
-  
-  # Full scenario names as defined in yaml file - try cheaper non-array call
-  f$scenario_names = parse_yaml(o, "*read*", read_array = FALSE)[f$scenarios]
-  
-  # If these are array scenarios, we'll need the more expensive read_array version of *read*
-  if (any(is.na(f$scenario_names)))
-    f$scenario_names = parse_yaml(o, "*read*", read_array = TRUE)[f$scenarios]
-  
-  # Check if any names are still missing - throw an error if so
-  missing_names = f$scenarios[is.na(f$scenario_names)]
-  if (length(missing_names) > 0)
-    stop("Scenario names not recognised: \n", paste(missing_names, collapse = "\n"))
-  
-  # Apply custom function to these scenario names if given
-  if (!is.null(args$scenario_name_fn))
-    f$scenario_names = args$scenario_name_fn(f$scenario_names)
-  
-  # ---- Relative to a baseline ----
-  
-  # Do we want to plot difference between scenarios and baseline
-  if (p$relative == TRUE) {
-    
-    # Reduce number of scenarios by one as we won't plot baseline explictly
-    f$n_scenarios = f$n_scenarios - 1
-    
-    # Sanity check that not only a baseline is provided
-    if (f$n_scenarios == 0)
-      stop("To use 'relative' you must provide some alternative scenarios")
-    
-    # We won't be plotting the baseline in this case
-    f$plot_baseline = FALSE
-  }
-  
-  # Throw an error if no scenarios identified
-  if (f$n_scenarios == 0)
-    stop("No scenarios identified - plot a baseline and/or scenarios")
-  
-  # ---- Scenario groupings ----
-  
-  # Check whether scenarios should be grouped
-  if (!is.null(p$scenario_matrix)) {
-    
-    # Construct function to append baseline details (if needed)
-    add_baseline_fn = function(x) {
-      
-      # Normal use case: a baseline for each scenario_group
-      if (!p$aes_reverse)
-        y = expand_grid(scenario_group = unique(x$scenario_group),
-                        scenario_type  = x$scenario_type[1],
-                        scenario_id    = f$baseline_name)
-      
-      # Alternative use case: baseline in it's own facet
-      if (p$aes_reverse)
-        y = expand_grid(scenario_group = "Baseline",
-                        scenario_type  = "Baseline",
-                        scenario_id    = f$baseline_name)
-      
-      # Bind with existing dataframe
-      z = rbind(y, x)
-    }
-    
-    # Generate a dataframe describing the groupings
-    f$scenario_groups = as.data.table(p$scenario_matrix) %>%
-      mutate(scenario_group = rownames(p$scenario_matrix)) %>%
-      pivot_longer(cols = -scenario_group, 
-                   names_to  = "scenario_type", 
-                   values_to = "scenario_id") %>%
-      {if (f$plot_baseline) add_baseline_fn(.) else .} %>%
-      left_join(data.table(scenario_id = f$scenarios, 
-                           scenario    = f$scenario_names), 
-                by = "scenario_id") %>%
-      select(scenario, scenario_type, scenario_group) %>%
-      setDT()
-    
-    # Store the number of groups for easy referencing
-    f$n_scenario_groups = c(nrow(p$scenario_matrix), 
-                            ncol(p$scenario_matrix))
-  }
-  
-  # Do we have multiple scenarios to plot?
-  if (f$n_scenarios > 1) {
-    
-    # They can either be grouped...
-    if (!is.null(p$scenario_matrix)) {
-      f$plot_type = "scenario_group"
-      
-    } else {  # ... or not
-      f$plot_type = "scenario"
-    }
-  }
-  
   return(f)
 }
 
@@ -3579,7 +2576,6 @@ fig_defaults = function() {
     summarise     = "sum",       # Summarise data function for bar and tile plots
     plot_baseline = TRUE,        # Flag for plotting a baseline
     alt_baseline  = NULL,        # Define some alternative 'baseline'
-    fit_target    = FALSE,       # Plot what we've fitted to (either Re or epi data)
     scenarios     = NULL,        # Alternative scenario names (a vector or matrix)
     relative      = FALSE,       # Outcomes plotted relative to baseline
     aes_reverse   = FALSE,       # Reverse default grouped scenarios aesthetics (colour-linetype) 
@@ -3598,8 +2594,7 @@ fig_defaults = function() {
     date_labels   = "%b %y",     # Date label format (month-year: "%b %y", day-month: "%d %b")
     date_breaks   = "1 month",   # Distance between date labels on x axis for temporal plots
     plot_to       = Inf,         # Cut plotting after so many days
-    y_min         = 1,           # Set a minimum for y_max for all metrics
-    y_expand      = 0.05,        # Expand y axis as a multiple of largest data point
+    expand_limit  = 1,           # Set a minimum for y_max for all metrics
     bar_width     = 0.9,         # Bar width of impact bars 
     bar_legend    = FALSE,       # Use a legend (rather than tick labels) to define scenarios in bar plots
     legend_rows   = 2,           # Number of legend rows
@@ -3607,27 +2602,24 @@ fig_defaults = function() {
     facet_rows    = NULL,        # Number of facet rows for facet_wrap plots
     facet_custom  = NULL,        # Define custom facets as evaluable string, eg using ggh4x::facet_grid2
     facet_by      = "scenario",  # Facet by either 'scenario' or 'group' for number of infection histograms
-    facet_labels  = FALSE,       # Flag for whether to tag/label each facet with a capital letter
+    facet_labels  = FALSE,        # Flag for whether to tag/label each facet with a capital letter
     n_wrap        = 20,          # Number of chars per line per strip (grid_plots can take 2nd value)
     x_wrap        = 30,          # Number of chars per line per x axis label in relevant bar plots
     x_rotate      = 50,          # Degrees to rotate x axis labels in relevant bar plots
     line_width    = 2,           # Line thickness for geom_line plots
     override_colours  = NULL,    # Vector of custom colours
     override_fontsize = NULL,    # Vector of custom font sizes 
-    scenario_name_fn  = NULL,    # Custom scenario naming function
-    plot_file         = NULL,    # Option for directly passing in processed model output
-    save_dataframe    = FALSE)   # Save plotting dataframe (file name = figure name)
+    scenario_name_fn  = NULL)    # Custom scenario naming function
   
   # Define default values specfic for heatmaps
   defaults_heat = list(
-    colour_palette = "pals::kovesi.rainbow",  # Colour scale (use "-xxx" to reverse direction)*
-    colour_limits  = NULL,        # Data and colour bounds (2 value vector)**
-    colour_bins    = NULL,        # Discretise colour bar into blocks (can be uneven)
-    array          = NULL,        # Array ID to plot (as defined in analysis yaml)
     dif_array      = NULL,        # Optional input for calculating difference between two arrays
     dif_relative   = FALSE,       # Should the difference be caclulated relative to primary
     n_interpolate  = NULL,        # Interpolate to nxn points in each facet
     multi_scale    = NULL,        # Produce a new colour scale for each value along one dimension ('v' or 'w')
+    colour_palette = "Spectral",  # Colour scale (use "-xxx" to reverse direction)*
+    colour_limits  = NULL,        # Data and colour bounds (2 value vector)**
+    colour_bins    = NULL,        # Discretise colour bar into blocks (can be uneven)
     contour_val    = NA,          # Plot a contour at a given value
     contour_tol    = 0.05,        # Tolerance around contour_val for point selection
     contour_fn     = "y ~ x",     # Fit contour through points within contour_tol of contour_val
@@ -3640,8 +2632,7 @@ fig_defaults = function() {
     w_percent      = FALSE,       # Convert 3rd dim values to percentage
     v_percent      = FALSE,       # Convert 4th dim values to percentage
     plot_title     = NULL,        # Override plot title
-    plot_subtitle  = NULL,        # Override plot subtitle
-    plot_df        = NULL)        # Option for directly passing in plotting dataframe
+    plot_subtitle  = NULL)        # Override plot subtitle
   
   # NOTES:
   #   * Use 1 or n values for multi_scale plots
@@ -3656,7 +2647,8 @@ fig_defaults = function() {
 # ---------------------------------------------------------
 # Save a ggplot figure to file with default settings
 # ---------------------------------------------------------
-fig_save = function(o, g, ..., path = "results", width = o$save_width, height = o$save_height) {
+fig_save = function(o, g, ..., path = "figures", res = o$save_resolution, 
+                    width = o$save_width, height = o$save_height) {
   
   # Collapse inputs into vector of strings
   fig_name_parts = unlist(list(...))
@@ -3668,33 +2660,8 @@ fig_save = function(o, g, ..., path = "results", width = o$save_width, height = 
   for (fig_format in o$figure_format) {
     save_pth  = paste0(o$pth[[path]], save_name, ".", fig_format)
     
-    # Save figure (size specified in options.R)
-    ggsave(save_pth, 
-           plot   = g, 
-           device = fig_format, 
-           dpi    = o$save_resolution, 
-           width  = width, 
-           height = height, 
-           units  = o$save_units)
+    # Save figure (size specified in results.R)
+    ggsave(save_pth, plot = g, width = width, height = height)
   }
-}
-
-# ---------------------------------------------------------
-# Save a plotting dataframe to file
-# ---------------------------------------------------------
-save_dataframe = function(o, plot_df, fig_name) {
-  
-  # Give a generic name if otherwise unnamed figure
-  if (is.null(fig_name))
-    fig_name = "Untitled"
-  
-  # A bit of formatting to remove illegal chars
-  save_name = fig_name %>%
-    paste(collapse = "_") %>%
-    str_replace_all(" ", "_") %>%
-    paste0(".rds")
-  
-  # Save plotting dataframe in figure folder
-  saveRDS(plot_df, file = paste0(o$pth$results, save_name))
 }
 

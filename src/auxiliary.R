@@ -57,7 +57,7 @@ clf = function() graphics.off()
 # ---------------------------------------------------------
 # Create colour scheme
 # ---------------------------------------------------------
-colour_scheme = function(map, pal = NULL, n = 1, ...) {
+colour_scheme = function(map, pal = NULL, n = 1) {
   
   # Has colour palette been defined
   if (is.null(pal)) {
@@ -76,31 +76,25 @@ colour_scheme = function(map, pal = NULL, n = 1, ...) {
   
   # Built in colour schemes
   if (map == "base")
-    colours = get(pal)(n, ...)	
+    colours = get(pal)(n)	
   
   # A load of colour maps from the pals package
   #
   # See: https://www.rdocumentation.org/packages/pals/versions/1.6
   if (map == "pals")
-    colours = get(pal)(n, ...)
-  
-  # Stylish HCL-based colour maps
-  #
-  # See: https://colorspace.r-forge.r-project.org/articles/hcl_palettes.html
-  if (grepl("_hcl$", map))
-    colours = get(map)(palette = pal, n = n, ...)
+    colours = get(pal)(n)
   
   # Colour Brewer colour schemes
   if (map == "brewer")
-    colours = brewer_pal(palette = first_cap(pal), ...)(n)
+    colours = brewer_pal(palette = first_cap(pal))(n)
   
   # Viridis colour schemes
   if (map == "viridis")
-    colours = viridis_pal(option = pal, ...)(n)
+    colours = viridis_pal(option = pal)(n)
   
   # Throw an error if colours not yetr defined
   if (is.null(colours))
-    stop("Colour map '", map, "' not recognised (supported: base, pals, hcl, brewer, viridis)")
+    stop("Colour map '", map, "' not recognised (supported: base, pals, brewer, viridis)")
   
   return(colours)
 }
@@ -118,12 +112,6 @@ create_bash_log = function(pth, log = NULL, err = NULL) {
   }
   return(paste0(pth, log))
 }
-
-# ---------------------------------------------------------
-# Evaluate a string (in calling function environment) using eval
-# ---------------------------------------------------------
-eval_str = function(...)
-  eval(parse(text = paste0(...)), envir = parent.frame(n = 1))
 
 # ---------------------------------------------------------
 # Biphasic exponential function
@@ -164,7 +152,7 @@ facet_dims = function(g) {
 # ---------------------------------------------------------
 # A wrapper for tagger::tag_facets with a few extras
 # ---------------------------------------------------------
-facet_labels = function(g, ...) {
+facet_labels = function(g, f, ...) {
   
   # Default arguments
   args = list(tag = "panel", 
@@ -173,6 +161,22 @@ facet_labels = function(g, ...) {
   
   # Overwrite these if desired
   args = list_modify(args, !!!list(...))
+  
+  # Determine if ggh4x is being used
+  str_ggh4x = "facet_[\\<wrap\\>,\\<grid\\>]{4}2"
+  use_ggh4x = grepl(str_ggh4x, f$facet_custom)
+  
+  # If yes, we need to reverse direction of labels
+  if (isTRUE(use_ggh4x)) {
+    
+    warning("Facet labelling does not work well with ggh4x")
+    
+    return(g)
+    
+    # f_dims = facet_dims(g)
+
+    # tag_pool = LETTERS[1 : prod(f_dims)]
+  }
   
   # Call tag_facets function with these arguments
   g = g + do.call(tag_facets, args) 
@@ -255,22 +259,19 @@ n_slurm_jobs = function(user) {
   sq = paste("squeue -u", user)
   
   # Concatenate full commands
-  slurm_running  = paste(sq, "-t running | wc -l")
-  slurm_pending  = paste(sq, "-t pending | wc -l")
-  slurm_ondemand = paste(sq, "-q interactive | wc -l")  # Interactive jobs
-  
-  # Function to get number of jobs (minus 1 to remove header row)
-  get_jobs_fn = function(x) as.numeric(system(x, intern = TRUE)) - 1
+  slurm_running = paste(sq, "-t running | wc -l")
+  slurm_pending = paste(sq, "-t pending | wc -l")
   
   # System call to determine number of slurm processes
-  n_running  = get_jobs_fn(slurm_running)
-  n_pending  = get_jobs_fn(slurm_pending)
-  n_ondemand = get_jobs_fn(slurm_ondemand)  # Interactive jobs
+  n_running = system(slurm_running, intern = TRUE)
+  n_pending = system(slurm_pending, intern = TRUE)
+  
+  # Convert to numeric and minus 1 to get number of jobs
+  n_running = as.numeric(n_running) - 1
+  n_pending = as.numeric(n_pending) - 1
   
   # Compile into list
-  #
-  # NOTE: ondemand jobs are considered 'running', so discount these
-  n_jobs = list(running = n_running - n_ondemand, pending = n_pending)
+  n_jobs = list(running = n_running, pending = n_pending)
   
   return(n_jobs)
 }
@@ -340,15 +341,6 @@ quiet = function(x) {
 # Wrapper for consistent behaviour of base::sample when length(x) is one
 # ---------------------------------------------------------
 sample_vec = function(x, ...) x[sample.int(length(x), ...)]
-
-# ---------------------------------------------------------
-# Allow scale_fill_fermenter to accept custom palettes
-# ---------------------------------------------------------
-scale_fill_fermenter_custom = function(cols, guide = "coloursteps", na.value = "grey50", ...) {
-  palette = ggplot2:::binned_pal(scales::manual_pal(cols))
-  g = binned_scale("fill", "fermenter", palette, guide = guide, na.value = na.value, ...)
-  return(g)
-}
 
 # ---------------------------------------------------------
 # Initiate progress bar with normal-use options
@@ -495,7 +487,7 @@ try_load = function(pth, file, msg = NULL, type = "rds", throw_error = TRUE, sep
       error = function(e) {
         
         # Throw descriptive error if desired
-        if (throw_error == TRUE) 
+        if (throw_error) 
           stop(msg, " [unreadable: ", file_name, "]")
       }
     )
@@ -570,3 +562,13 @@ wait_for_jobs = function(o, log_file, n_lines,
   }
 }
 
+# ---------------------------------------------------------
+# Improve speed of pmap function (purrr package required)
+# ---------------------------------------------------------
+map_tbl <- function (.l, .f, ..., .id = NULL) {
+  .f <- as_mapper(.f, ...)
+  
+  res <- pmap(unname(.l), .f, ...)
+  
+  rbindlist(res)
+}

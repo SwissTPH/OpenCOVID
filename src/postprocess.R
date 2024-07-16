@@ -8,17 +8,17 @@
 # ---------------------------------------------------------
 # Calculate effective reproduction number
 # ---------------------------------------------------------
-calculate_Re = function(incidence, si, Re_window) {
+calculate_Reff = function(incidence, si, r_eff_window) {
   
   # See: https://cran.r-project.org/web/packages/EpiEstim/vignettes/demo.html
   
   # Number of daily observations
-  n_days = length(incidence)
-  
-  # Use Re_window here for non-default time window
-  Re_win  = Re_window - 1
-  Re_days = seq(2, n_days - Re_win) # Starting at 2 as conditional on the past observations
-  
+  n_days = length(incidence$local)
+
+  # Use r_eff_window here for non-default time window
+  r_win  = r_eff_window - 1
+  r_days = seq(2, n_days - r_win) # Starting at 2 as conditional on the past observations
+
   # Check if serial interval has already been summarised
   if (is.list(si)) si_dist = si[c("mean", "std")]
   
@@ -28,30 +28,30 @@ calculate_Re = function(incidence, si, Re_window) {
   # We'll use the mean and standard deviation of this data
   si_list = list(mean_si = si_dist$mean, 
                  std_si  = si_dist$std, 
-                 t_start = Re_days,
-                 t_end   = Re_days + Re_win)
+                 t_start = r_days,
+                 t_end   = r_days + r_win)
   
   # Use estimate_R function from EpiEstim package
-  Re_list = estimate_R(incid  = incidence, 
-                       method = "parametric_si",
-                       config = make_config(si_list))
+  R_eff_df = estimate_R(incid  = incidence$local, 
+                        method = "parametric_si",
+                        config = make_config(si_list))
   
-  # Extract Re estimate along with 95% CI bounds
-  Re_df = Re_list$R %>%
+  # Extract R_eff estimate along with 95% CI bounds
+  R_eff = R_eff_df$R %>%
     select(date  = t_start,
            value = "Mean(R)", 
            lower = "Quantile.0.025(R)", 
            upper = "Quantile.0.975(R)") %>%
-    filter(date >= Re_window) %>%
+    filter(date >= r_eff_window) %>%
     right_join(data.frame(date = 1 : n_days), 
                by = "date") %>%
     arrange(date) %>%
-    mutate(incidence = incidence)
+    mutate(incidence = incidence$local)
   
   # Append serial distribution 
-  Re_info = list(Re_df = Re_df, si = si_dist)
+  R_info = list(R_eff = R_eff, si = si_dist)
   
-  return(Re_info)
+  return(R_info)
 }
 
 # ---------------------------------------------------------
@@ -64,7 +64,7 @@ aggregate_results = function(input, raw_output) {
   #       only aggregate, and not summarise raw results.
   
   # Metrics that can be aggregated
-  agg_metrics = input$metrics$df[aggregate == TRUE, metric]
+  agg_metrics = input$metrics$df[aggregate == TRUE,  metric]
   
   # Need to aggregate grouped metrics: get first grouping per metric to avoid double counting
   first_grouping = raw_output %>% 
@@ -73,9 +73,7 @@ aggregate_results = function(input, raw_output) {
     unique() %>%
     filter(!grouping %in% c("none", "na")) %>%
     group_by(metric) %>%
-    slice(1) %>%
-    ungroup() %>%
-    setDT()
+    slice(1)
   
   # Aggregate values of first grouping
   agg_df = first_grouping %>%
@@ -83,11 +81,10 @@ aggregate_results = function(input, raw_output) {
               by = c("metric", "grouping")) %>%
     group_by(metric, date, scenario, seed) %>%
     summarise(value = sum(value)) %>%
-    ungroup() %>%
     mutate(grouping = "none",
            group    = NA) %>%
     bind_rows(raw_output) %>%
-    setDT()
+    as.data.table()
   
   return(agg_df)
 }
@@ -97,35 +94,34 @@ aggregate_results = function(input, raw_output) {
 # ---------------------------------------------------------
 process_results = function(result, raw_output) {
   
-  # NOTE: Datatable syntax used here for speed - can be an expensive process
-  
   # Aggregate groupings for appropriate metrics
   agg_df = aggregate_results(result$input, raw_output)
   
   # Create key summary statistics across seeds
-  result$output =
-    agg_df[, .(mean   = mean(value),
-               median = quantile(value, 0.5, na.rm = TRUE),
-               lower  = quantile(value, o$quantiles[1], na.rm = TRUE),
-               upper  = quantile(value, o$quantiles[2], na.rm = TRUE)),
-           keyby = .(date, metric, grouping, group, scenario)
-    ][order(metric, grouping, group, date)]
+  result$output = agg_df %>% 
+    group_by(date, metric, grouping, group, scenario) %>% 
+    summarise(mean   = mean(value),
+              median = quantile(value, 0.5, na.rm = TRUE),
+              lower  = quantile(value, o$quantiles[1], na.rm = TRUE),
+              upper  = quantile(value, o$quantiles[2], na.rm = TRUE)) %>% 
+    arrange(metric, grouping, group, date) %>% 
+    as.data.table()
   
   # Metrics that can be cumulatively summed
   cum_metrics = result$input$metrics$df[cumulative == TRUE, metric]
   
-  # Cumulatively sum all values
-  cum_df = agg_df[metric %in% cum_metrics, ]
-  cum_df[, cum_value := cumsum(value), by = .(metric, grouping, group, scenario, seed)]
-  
-  # ...then compute quantiles across seeds
-  result$cum_output = 
-    cum_df[, .(mean   = mean(cum_value), 
-               median = quantile(cum_value, 0.5), 
-               lower  = quantile(cum_value, o$quantiles[1]), 
-               upper  = quantile(cum_value, o$quantiles[2])), 
-           keyby = .(date, metric, grouping, group, scenario)
-    ][order(metric, grouping, group, date)]
+  # Cumulatively sum all values then compute quantiles across seeds
+  result$cum_output = agg_df %>%
+    filter(metric %in% cum_metrics) %>%
+    group_by(metric, grouping, group, scenario, seed) %>%
+    mutate(cum_value = cumsum(value)) %>%  
+    group_by(date, metric, grouping, group, scenario) %>% 
+    summarise(mean   = mean(cum_value),
+              median = quantile(cum_value, 0.5),
+              lower  = quantile(cum_value, o$quantiles[1]),
+              upper  = quantile(cum_value, o$quantiles[2])) %>% 
+    arrange(metric, grouping, group, date) %>% 
+    as.data.table()
   
   return(result)
 }
@@ -151,21 +147,20 @@ format_results = function(o, f, results) {
   
   # Subset of metric details: coverages and scaled metrics
   metric_df = results$input$metrics$df %>%
-    select(metric, scale, coverage)
+    select(metric, scaled, coverage)
   
   # Scaler required (based on number simulated)
   scaler = f$person_days / results$input$population_size
   
+  # Variables that need to be mutated
+  vars = c("value", "lower", "upper")
+  
   # For appropriate metrics, apply scaler and multiple by 100 
   output_df = output_df %>%
     left_join(metric_df, by = "metric") %>%
-    mutate(value = ifelse(scale, value * scaler, value), 
-           lower = ifelse(scale, lower * scaler, lower), 
-           upper = ifelse(scale, upper * scaler, upper)) %>% 
-    mutate(value = ifelse(coverage, value * 100, value), 
-           lower = ifelse(coverage, lower * 100, lower), 
-           upper = ifelse(coverage, upper * 100, upper)) %>%
-    select(-scale, -coverage)
+    mutate(across(all_of(vars), function(x) ifelse(scaled, x * scaler, x)), 
+           across(all_of(vars), function(x) ifelse(coverage, x * 100, x))) %>%
+    select(-scaled, -coverage)
   
   # ---- Select appropriate grouping ----
   
@@ -202,12 +197,10 @@ format_results = function(o, f, results) {
 # ---------------------------------------------------------
 # Group by user-defined age classifications
 # ---------------------------------------------------------
-group_ages = function(o, df, summarised = TRUE) {
+group_ages = function(o, df) {
   
   # Preallocate and bind age group variable to datatable
-  age_df = df %>% 
-    mutate(group = as.numeric(group), 
-           age_group = "none")
+  age_df = mutate(df, group = as.numeric(group), age_group = "none")
   
   # Loop through age groups to classify into (from youngest to oldest)
   n_ages = length(o$plot_ages)
@@ -225,35 +218,88 @@ group_ages = function(o, df, summarised = TRUE) {
     age_df[group >= age_lower, age_group := age_name]
   }
   
-  # Recode with age group rather than age value
+  # Summarise by summing across age groups
   age_df = select(age_df, -group) %>%
     rename(group = age_group) %>%
-    mutate(group = paste("Age", group))
-  
-  # Dealing with already summarised output
-  if (summarised == TRUE) {
-    
-    # Summarise by summing across age groups
-    age_df = age_df %>%
-      group_by(date, metric, scenario, group) %>%
-      summarise(value = sum(value),
-                lower = sum(lower),
-                upper = sum(upper)) %>%
-      ungroup() %>%
-      setDT()
-  }
-  
-  # Dealing with raw, non-summarised output
-  if (summarised == FALSE) {
-    
-    # Summarise by summing across age groups but not simulations
-    age_df = age_df %>%
-      group_by(date, metric, seed, scenario, group) %>%
-      summarise(value = sum(value)) %>%
-      ungroup() %>%
-      setDT()
-  }
+    mutate(group = paste("Age", group)) %>%
+    group_by(date, metric, scenario, group) %>%
+    summarise(value = sum(value),
+              lower = sum(lower),
+              upper = sum(upper)) %>%
+    as.data.table()
   
   return(age_df)
+}
+
+# ---------------------------------------------------------
+# Calculate network summary statistics
+# ---------------------------------------------------------
+calculate_network_statistics <- function(result, raw_df, metrics = c("all_new_infections", "hospital_admissions")) {
+  
+  skip_days <- 100
+  
+  # ---- Calculate peak metrics ----
+  
+  raw_df <- raw_df[metric %in% metrics & grouping == "none"]
+  
+  raw_df_trim <- copy(raw_df[date > skip_days, ])
+  
+  # Select highest value by group
+  descriptives <- raw_df_trim[raw_df_trim[order(date), .I[value == max(value)], by=.(metric, scenario, seed)]$V1][order(date), .SD, by = .(metric, scenario, seed)]
+  
+  # Select always the first entry - To discuss!
+  descriptives <- descriptives[descriptives[, .I[1], by = .(metric, scenario, seed)]$V1]
+  
+  descriptives <- descriptives[, .(metric, scenario, seed, peak_date = date, peak_value = value)]
+  
+  cum_df <- copy(raw_df)
+  
+  cum_df[order(date), cum_value := cumsum(value), by = .(metric, scenario, seed)]
+  
+  cum_df <- cum_df[date == max(date), .SD, by = .(metric, scenario, seed)]
+  
+  results_df <- cum_df[descriptives, on = .(metric, scenario, seed)][, .(metric, scenario, seed, peak_date, peak_value, cum_value)]
+  
+  results_df <- pivot_longer(results_df, c("peak_date", "peak_value", "cum_value"), names_to = "variable") %>%
+    as.data.table()
+  
+  stats_df <- results_df[, list(mean = mean(value), 
+                                  median = median(value), 
+                                  lower = quantile(value, probs = o$quantiles[1]), 
+                                  upper = quantile(value, probs = o$quantiles[2])), 
+                           by = list(metric, scenario, variable)]
+  
+  result$clustering$stats <- stats_df
+  
+  # ---- Calculate network metrics (e.g., clustering) ----
+  
+  network <- result$network %>% select(from, to, layer)
+  
+  layer_weights <- result$input$layer_properties$beta_scaler %>%
+    as.data.frame() %>%
+    pivot_longer(everything(), names_to = "layer", values_to = "weight") %>%
+    as.data.table()
+  
+  # Join layer weight from layer_weights table
+  network <- layer_weights[network[, .(from, to, layer)], on = .(layer)][, .(i = from, j = to, w = weight)]
+  
+  # Remove duplicate entries
+  network <- network[, .(w, .N), by = .(i, j)][N == 1, .(i, j, w)]
+  
+  # Calculate "simple" clustering coefficient (igraph package)
+  result$clustering$cc <- network[, .(from = i, to = j)] %>%
+    graph_from_data_frame(directed = FALSE) %>%
+    transitivity()
+  
+  # Calculate generalized clustering coefficient (tnet package)
+  cc_generalized <- network %>%
+    as.tnet(type = "weighted one-mode tnet") %>%
+    clustering_w()
+  
+  # Use arithmetic mean only
+  result$clustering$cc_generalized <- cc_generalized[["am"]]
+  
+  return(result)
+  
 }
 

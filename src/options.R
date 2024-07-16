@@ -5,7 +5,7 @@
 #
 # Any numerical, logical, or character value or vector defined
 # in the main set_options() function can be overridden through
-# the non-mandatory \config\my_options.yaml file. Note that
+# the non-mandatory \config\my_options.csv file. Note that
 # this my_options file is git ignored (indeed, that is the very
 # point of such a file), so each user will need to create one.
 #
@@ -35,51 +35,40 @@ set_options = function(do_step = NA, quiet = FALSE) {
   
   # ---- Data references ----
   
-  # ECDC data links
-  o$ecdc_api = 
-    list(cases = "https://opendata.ecdc.europa.eu/covid19/nationalcasedeath_eueea_daily_ei/csv", 
-         hosp  = "https://opendata.ecdc.europa.eu/covid19/hospitalicuadmissionrates/csv")
-  
-  # ETH effective reproduction number estimates
-  o$eth_api = "https://raw.githubusercontent.com/covid-19-Re/dailyRe-Data/master/<country>-estimates.csv"
-  
   # API endpoint for national-level Oxford Stringency Index data
   o$osi_api = "https://covidtrackerapi.bsg.ox.ac.uk/api/v2/stringency/date-range/"
-  
-  # Data dictionary: ECDC hospital & ICU indicators
-  o$data_dict$ecdc = c(hospital_beds = "Daily hospital occupancy", 
-                       icu_beds      = "Daily ICU occupancy",
-                       hospital_admissions = "Weekly new hospital admissions per 100k", 
-                       icu_admissions      = "Weekly new ICU admissions per 100k")
-  
-  # Use R or python backend for parsing yaml files
-  #
-  # NOTE: Python package can handle anchors and aliases
-  o$read_yaml_engine = "python" # OPTIONS: "R" or "python"
   
   # ---- Calibration settings ----
   
   # Whether fitting should be reproducible
   o$fit_reproducible = TRUE
   
-  # Force the regeneration of synthetic data by running the model
-  o$force_regenerate_synthetic = FALSE
+  # Take R_eff as the mean across these days
+  #
+  # NOTE: R_eff is calculated over a 7-day rolling window
+  o$fit_days = 10 : 15
   
-  # Overwrite existing samples
-  o$overwrite_samples = FALSE
+  # Number of samples and seeds for training model emulator
+  o$emulator_samples = 400
+  o$emulator_seeds = 20
   
   # Accept up to x% of samples failing
   o$sample_err_tol = 0.05  # 1-5% is reasonable
   
-  # The 'best' parameter set to take from calibration process
-  #
-  # OPTIONS: 
-  #   "emulated" := Global minimum of emulated space
-  #  "simulated" := Lowest objective value from all already simulated parameter sets
-  o$best_param_set = "emulated"
+  # Test-train split of samples for training model emulator
+  o$test_train_split = 0.15  # 15-20% is reasonable
   
-  # Check calibration file consistency before simulating scenarios
-  o$check_fit_consistency = FALSE  # Should be more efficient to be a default check
+  # Select GP kernel function
+  o$gp_kernel = "Matern5_2" # "Gaussian", "Matern5_2", or "Matern3_2"
+  
+  # Maximum number of iterations of GP algorithm
+  o$gp_max_iter = 1000
+  
+  # Number of times to perform optimisation
+  o$optim_runs = 20
+  
+  # Number of ASD iterations
+  o$fit_iters_max = 100
   
   # Selection of model parameters that can be changed without the need for re-fitting
   #
@@ -91,30 +80,28 @@ set_options = function(do_step = NA, quiet = FALSE) {
                              "vaccine_rollout", 
                              "diagnosis_delay",
                              "testing", 
-                             "isolation")
+                             "isolation",
+                             "network_layers",
+                             "network_structure",
+                             "layer_properties")
+  
+  # Check calibration file consistency before simulating scenarios
+  o$check_fit_consistency = TRUE
   
   # ---- Uncertainty settings ----
   
-  # Flag for reproducible scenarios (consistent randomly sampled seeds)
-  o$scenario_reproducible = TRUE
-  
-  # Statistical summary to use for 'best estimate' projection
+  # Which parameter set to use for 'best estimate' projection
   #
   # OPTIONS:
   #  "median" := Median of uncertainty simulations (stochastic and parameter uncertainty)
   #    "mean" := Mean of uncertainty simulations (stochastic and parameter uncertainty)
   o$best_estimate_simulation = "mean"
   
-  # Number of seeds to run for each scenario (including baseline)
-  o$n_seeds_analysis = 10
+  # Number of parameters sets to sample from MCMC posteriors
+  o$n_parameter_samples = 0  # Not including best parameter set
   
-  # Number of parameters sets to sample when simulating parameter uncertainty
-  o$n_parameter_sets = 10  # Best to set to 1 if not simulating parameter uncertainty
-
-  # Flag for simulating each uncertainty parameter set n_seeds times
-  #
-  # NOTE: If false, each parameter set is simulated only once with a randomly defined seed
-  o$full_factorial_uncertainty = FALSE
+  # Number of seeds to run for each scenario (including baseline)
+  o$n_seeds_analysis = 20
   
   # Flag to impute vaules for scenarios that did not run (mean across all other seeds)
   o$impute_failed_jobs = TRUE
@@ -131,7 +118,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$overwrite_simulations = TRUE
   
   # Check YAML file consistency for any existing simulations before skipping
-  o$check_yaml_consistency = FALSE  # Should be more efficient to be a default check
+  o$check_yaml_consistency = TRUE
   
   # Choose cluster partition for parallel jobs
   o$cluster_partition = "scicore" # OPTIONS: "covid19" or "scicore"
@@ -150,7 +137,7 @@ set_options = function(do_step = NA, quiet = FALSE) {
   #  1) General principle - the higher this is set, the less resources you get
   #  2) Anything upto (and incuding) 3.7GB will give maximum resources (~500 cores at a time)
   #  3) For populations sizes of over 1m, you'll likely want something around 8GB
-  o$job_memory = "8GB"
+  o$job_memory = "16GB"
   
   # Set an upper limit for jobs that can be run at any one time
   o$job_limit = 600
@@ -168,21 +155,20 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # ---- Plotting settings ----
   
   # Lower bound of age groups for plotting - bounded above by maximum age
-  o$plot_ages = c(0, 18, 60)  # Captures 3 age groups as per ECDC request
+  o$plot_ages = c(0, 18, 50, 65, 75, 85)
   
   # Plot a maximum number of scenarios on temporal plots
   o$max_scenarios = 25
   
   # Colour packages and palettes for scenarios, metrics, and cantons (see colour_scheme in myRfunctions.R)
-  o$palette_scenario = "pals::cols25"
-  o$palette_metric   = "pals::kovesi.rainbow"
+  o$palette_scenario = "pals::cols25" # "brewer::dark2"
+  o$palette_metric   = "base::rainbow"
   
   # Colour packages and palettes for groupings (see colour_scheme in myRfunctions.R)
   o$palette_age     = "brewer::set2"
-  o$palette_variant = "brewer::set3"
-  o$palette_priority_group = "brewer::accent"
-  o$palette_vaccine_type   = "brewer::dark2"
-  o$palette_vaccine_doses  = "pals::kovesi.rainbow"
+  o$palette_variant = "brewer::dark2"
+  o$palette_layer   = "brewer::set3"
+  o$palette_priority_group = "brewer::set2"
   
   # Define some nice properties for baseline metric plots
   o$baseline_name   = "Baseline scenario"
@@ -196,12 +182,6 @@ set_options = function(do_step = NA, quiet = FALSE) {
   o$save_width  = 14
   o$save_height = 10
   
-  # Units of figures sizes
-  o$save_units = "in"
-  
-  # Units of figures sizes
-  o$save_units = "in"
-  
   # Plotting resolution (in dpi)
   o$save_resolution = 300
   
@@ -213,19 +193,15 @@ set_options = function(do_step = NA, quiet = FALSE) {
   # ---- Plotting flags ----
   
   # Turn figures on or off
-  o$plot_baseline    = TRUE  # Standard baseline figures
-  o$plot_cumulative  = TRUE  # Plot cumulative outcomes
-  o$plot_scenarios   = TRUE  # Plot alternative (non-array) scenarios
-  o$plot_arrays      = TRUE  # Plot grid array scenario bundles
-  o$plot_heatmaps    = TRUE  # Plot heat maps for multidimension grid arrays
-  o$plot_endpoints   = TRUE  # Plot array LHC endpoints across different parameters
-  o$plot_assumptions = TRUE  # Model structure and assumptions figures
-  o$plot_calibration = TRUE  # Calibration performance and diagnostics
-  
-  # Flags for custom figures
+  o$plot_baseline    = FALSE  # Standard baseline figures
+  o$plot_cumulative  = FALSE  # Plot cumulative outcomes
+  o$plot_scenarios   = FALSE  # Plot alternative (non-array) scenarios
+  o$plot_arrays      = FALSE  # Plot array scenario bundles
+  o$plot_heatmaps    = FALSE  # Plot heat maps for multidimension arrays
+  o$plot_assumptions = FALSE  # Model structure and assumptions figures
   o$plot_custom      = TRUE  # Run my_results.R (if it exists)
   
-  # ---- Override options ----
+  # ---- Advanced functionality ----
   
   # Override options set in my_options file
   o = override_options(o, quiet = quiet)
@@ -241,35 +217,37 @@ set_options = function(do_step = NA, quiet = FALSE) {
 # ---------------------------------------------------------
 override_options = function(o, quiet = FALSE) {
   
-  # Throw a warning if user still has a my_options.csv file
-  if (file.exists(str_replace(o$pth$my_options, ".yaml$", ".csv")))
-    warning("my_options.csv has been deprecated: use my_options.yaml instead")
-  
   # If user has a 'my options' file, load it
   if (file.exists(o$pth$my_options)) {
-    my_options = read_yaml(o$pth$my_options)
+    my_options = read.csv(o$pth$my_options)
     
     # Continue if we have options to override
-    if (length(my_options) > 0) {
+    if (nrow(my_options) > 0) {
       
-      if (!quiet) message(" - Overriding options using config/my_options.yaml file")
+      if (!quiet) message(" - Overriding options using config/my_options.csv file")
       
       # Throw an error if there are entries that are not well defined options
-      unrecognised = names(my_options)[!names(my_options) %in% names(o)]
+      unrecognised = my_options$option[!my_options$option %in% names(o)]
       if (length(unrecognised) > 0)
         stop("Unrecognised entries in 'my options' file: ", paste(unrecognised, collapse = ", "))
       
       # Throw an error if there are multiple entries for any one option
-      duplicates = names(my_options)[duplicated(names(my_options))]
+      duplicates = my_options$option[duplicated(my_options$option)]
       if (length(duplicates) > 0)
         stop("Duplicate entries in 'my options' file: ", paste(duplicates, collapse = ", "))
       
       # Variable class of the options we wish to overwrite
-      class_conversion = paste0("as.", lapply(o[names(my_options)], class))
+      class_conversion = paste0("as.", lapply(o[my_options$option], class))
       
       # Iterate through the options and overwrite with value of correct class
-      for (i in seq_along(my_options))
-        o[[names(my_options)[i]]] = get(class_conversion[i])(my_options[[i]])
+      for (i in seq_len(nrow(my_options))) {
+        
+        # Format entry - primary job is to seperate out multiple values
+        format_value = base::trimws(str_split(my_options$value[i], ",")[[1]])
+        
+        # Overwrite the converted option as defined in 'my options' file
+        o[[my_options$option[i]]] = get(class_conversion[i])(format_value)
+      }
     }
   }
   
